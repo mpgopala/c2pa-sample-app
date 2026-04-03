@@ -8,3 +8,4 @@ dioxus = { version = "0.6", features = ["desktop"] }
 c2pa-sample-app = { path = "../.." }
 rfd = { version = "0.15", features = ["tokio"] }
 serde_json = "1"
+muda = "0.11"

@@ -2,6 +2,7 @@ use c2pa_sample_app::model::manifest::{
     verify_embedded_manifest, ManifestSummary, VerifyResult, VerifyValidationState,
 };
 use c2pa_sample_app::model::recents::{push_recent, RecentEntry};
+use crate::menu::rebuild_recents_menu;
 use dioxus::prelude::*;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -62,20 +63,6 @@ fn ancestor_ids(row_id: &str) -> Vec<String> {
     (1..parts.len()).map(|i| parts[..i].join("/")).collect()
 }
 
-/// Human-readable age string for a Unix timestamp.
-fn format_age(timestamp: u64) -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let secs = now.saturating_sub(timestamp);
-    match secs {
-        0..=59       => "just now".to_string(),
-        60..=3_599   => format!("{}m ago", secs / 60),
-        3_600..=86_399 => format!("{}h ago", secs / 3_600),
-        _            => format!("{}d ago", secs / 86_400),
-    }
-}
 
 fn push_leaf(rows: &mut Vec<Row>, id: impl Into<String>, label: impl Into<String>, depth: usize, value: impl Into<String>) {
     let value = value.into();
@@ -229,16 +216,32 @@ pub fn VerifyPage() -> Element {
     let mut expanded: Signal<HashSet<String>> = use_signal(default_expanded);
     let mut highlighted: Signal<Option<String>> = use_signal(|| None);
     let mut recents: Signal<Vec<RecentEntry>> = use_context();
+    let mut pending_open: Signal<Option<String>> = use_context();
 
     // Verify a file path and update all relevant state.
+    // Also rebuilds the native "Recent Files" menu after updating recents.
     let mut open_file = move |path: String| {
         file.set(Some(path.clone()));
         let verify_result = verify_embedded_manifest(&path);
         push_recent(&path, &mut recents.write());
+        rebuild_recents_menu(&recents.peek());
         expanded.set(default_expanded());
         highlighted.set(None);
         result.set(Some(verify_result));
     };
+
+    // Respond to files queued by the native menu (File > Open… or File > Recent Files).
+    // Use spawn to break out of the reactive scope before mutating pending_open,
+    // preventing Dioxus from detecting a read-then-write cycle on the same signal.
+    use_effect(move || {
+        let queued = pending_open.read().clone();
+        if let Some(path) = queued {
+            spawn(async move {
+                pending_open.set(None);
+                open_file(path);
+            });
+        }
+    });
 
     rsx! {
         div { class: "page-title", "Verify Asset" }
@@ -265,36 +268,6 @@ pub fn VerifyPage() -> Element {
                     div { class: "file-selected", "✓ {f}" }
                 }
 
-                // ── Recent Files ──────────────────────────────────────────
-                {
-                    let recents_snap = recents.read();
-                    if !recents_snap.is_empty() {
-                        let entries: Vec<RecentEntry> = recents_snap.clone();
-                        drop(recents_snap);
-                        rsx! {
-                            div { class: "card recents-card",
-                                div { class: "card-title", "Recent Files" }
-                                for entry in entries {
-                                    {
-                                        let path = entry.path.clone();
-                                        let age  = format_age(entry.timestamp);
-                                        let is_active = file.read().as_deref() == Some(&entry.path);
-                                        rsx! {
-                                            div {
-                                                class: if is_active { "recent-item recent-item-active" } else { "recent-item" },
-                                                onclick: move |_| open_file(path.clone()),
-                                                span { class: "recent-name", "{entry.name}" }
-                                                span { class: "recent-age",  "{age}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        rsx! {}
-                    }
-                }
 
                 // ── Thumbnail + Validation summary ────────────────────────
                 if let Some(uri) = result.read().as_ref().and_then(|r| r.manifest.as_ref()).and_then(|m| m.thumbnail_data_uri.clone()) {
