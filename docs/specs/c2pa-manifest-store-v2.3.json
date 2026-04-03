@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "c2pa-manifest-store-v2.3",
+  "title": "C2PA Manifest Store — Specification v2.3",
+  "description": "JSON schema for a C2PA Manifest Store as defined in C2PA Technical Specification v2.3 (December 2025). This version introduced live video streaming support, unstructured text file embedding, additional audio formats, and the specVersion declaration field.",
+  "specVersion": "2.3",
+  "$ref": "#/definitions/ManifestStore",
+
+  "changes_from_v2_2": {
+    "added": [
+      "Live video streaming support via segmented manifest approach",
+      "Unstructured text file embedding using Unicode Variation Selectors",
+      "Additional audio format support: OGG Vorbis, expanded AVI",
+      "specVersion field in claim_generator_info for explicit spec version declaration",
+      "External Reference Assertion (c2pa.external-reference) for non-hashed external URIs",
+      "Fine-grained watermarking actions in c2pa.actions.v2",
+      "allActionsIncluded flag in c2pa.actions.v2",
+      "Multiple c2pa.actions assertions permitted in a single manifest",
+      "Enhanced c2pa.hash.bmff with exclusion ranges"
+    ],
+    "assertion_labels": {
+      "c2pa.actions.v2": "Gained allActionsIncluded, softwareAgents array, and fine-grained watermarking actions",
+      "c2pa.hash.bmff.v3": "Enhanced with flexible exclusion range support",
+      "c2pa.external-reference": "New assertion for non-hashed external URI references"
+    }
+  },
+
+  "definitions": {
+    "ManifestStore": {
+      "type": "object",
+      "required": ["manifests"],
+      "properties": {
+        "active_manifest": {
+          "type": "string",
+          "description": "Label (URN) of the active manifest."
+        },
+        "manifests": {
+          "type": "object",
+          "description": "Map of manifest label → Manifest object.",
+          "additionalProperties": { "$ref": "#/definitions/Manifest" }
+        },
+        "validation_status": {
+          "type": "array",
+          "description": "Flat validation status list (legacy v1/v2 format).",
+          "items": { "$ref": "#/definitions/ValidationStatus" }
+        },
+        "validation_results": {
+          "$ref": "#/definitions/ValidationResults"
+        },
+        "validation_state": {
+          "type": "string",
+          "enum": ["Invalid", "Valid", "Trusted"]
+        }
+      }
+    },
+
+    "Manifest": {
+      "type": "object",
+      "required": ["label", "instance_id"],
+      "properties": {
+        "label":               { "type": "string" },
+        "instance_id":         { "type": "string" },
+        "title":               { "type": "string" },
+        "claim_version":       { "type": "integer", "enum": [1, 2] },
+        "claim_generator":     { "type": "string", "description": "Free-text string (claim v1 only)." },
+        "claim_generator_info": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ClaimGeneratorInfo" },
+          "description": "Structured generator info (claim.v2 / C2PA 2.0+)."
+        },
+        "thumbnail":   { "$ref": "#/definitions/ResourceRef" },
+        "ingredients": { "type": "array", "items": { "$ref": "#/definitions/Ingredient" } },
+        "assertions":  { "type": "array", "items": { "$ref": "#/definitions/AssertionEntry" } },
+        "signature_info": { "$ref": "#/definitions/SignatureInfo" },
+        "redacted_assertions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "ClaimGeneratorInfo": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name":             { "type": "string" },
+        "version":          { "type": "string" },
+        "icon":             { "description": "HashedUri or HashedExternalUri" },
+        "operating_system": { "type": "string" },
+        "specVersion": {
+          "type": "string",
+          "description": "NEW in v2.3. Declares which version of the C2PA spec this claim was created against (e.g. '2.3')."
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "SignatureInfo": {
+      "type": "object",
+      "properties": {
+        "alg":                { "type": "string" },
+        "issuer":             { "type": "string" },
+        "common_name":        { "type": "string" },
+        "cert_serial_number": { "type": "string" },
+        "time":               { "type": "string", "format": "date-time" },
+        "revocation_status":  { "type": "string" }
+      }
+    },
+
+    "ResourceRef": {
+      "type": "object",
+      "required": ["format", "identifier"],
+      "properties": {
+        "format":     { "type": "string" },
+        "identifier": { "type": "string" },
+        "data_types": { "type": "array", "items": { "$ref": "#/definitions/AssetType" } },
+        "alg":        { "type": "string" },
+        "hash":       { "type": "string" }
+      }
+    },
+
+    "Ingredient": {
+      "type": "object",
+      "required": ["instance_id", "relationship"],
+      "description": "Ingredient as of v2.3. Supports c2pa.ingredient, c2pa.ingredient.v2, and c2pa.ingredient.v3.",
+      "properties": {
+        "title":              { "type": "string" },
+        "format":             { "type": "string" },
+        "instance_id":        { "type": "string" },
+        "document_id":        { "type": "string" },
+        "provenance":         { "type": "string" },
+        "hash":               { "type": "string" },
+        "relationship":       { "type": "string", "enum": ["parentOf", "componentOf", "inputTo"] },
+        "thumbnail":          { "$ref": "#/definitions/ResourceRef" },
+        "active_manifest":    { "type": "string" },
+        "validation_status":  { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } },
+        "validation_results": { "$ref": "#/definitions/ValidationResults" },
+        "data":               { "$ref": "#/definitions/ResourceRef" },
+        "description":        { "type": "string" },
+        "informational_URI":  { "type": "string" },
+        "metadata":           { "$ref": "#/definitions/AssertionMetadata" },
+        "data_types":         { "type": "array", "items": { "$ref": "#/definitions/AssetType" } },
+        "label":              { "type": "string" }
+      }
+    },
+
+    "AssertionEntry": {
+      "type": "object",
+      "required": ["label"],
+      "properties": {
+        "label":    { "type": "string" },
+        "data":     { "type": "object" },
+        "instance": { "type": "integer" }
+      }
+    },
+
+    "AssetType": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type":    { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+
+    "AssertionMetadata": {
+      "type": "object",
+      "properties": {
+        "dateTime":     { "type": "string", "format": "date-time" },
+        "reviewRatings": { "type": "array" },
+        "reference":    { "$ref": "#/definitions/HashedUri" }
+      }
+    },
+
+    "HashedUri": {
+      "type": "object",
+      "required": ["url", "hash"],
+      "properties": {
+        "url":  { "type": "string" },
+        "hash": { "type": "string" },
+        "alg":  { "type": "string" }
+      }
+    },
+
+    "ValidationStatus": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code":        { "type": "string" },
+        "url":         { "type": "string" },
+        "explanation": { "type": "string" }
+      }
+    },
+
+    "ValidationResults": {
+      "type": "object",
+      "properties": {
+        "activeManifest":   { "$ref": "#/definitions/StatusCodes" },
+        "ingredientDeltas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ingredientAssertionURI", "validationDeltas"],
+            "properties": {
+              "ingredientAssertionURI": { "type": "string" },
+              "validationDeltas":       { "$ref": "#/definitions/StatusCodes" }
+            }
+          }
+        }
+      }
+    },
+
+    "StatusCodes": {
+      "type": "object",
+      "properties": {
+        "success":       { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } },
+        "informational": { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } },
+        "failure":       { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } }
+      }
+    }
+  }
+}

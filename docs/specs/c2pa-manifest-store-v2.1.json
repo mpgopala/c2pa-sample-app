@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "c2pa-manifest-store-v2.1",
+  "title": "C2PA Manifest Store — Specification v2.1",
+  "description": "JSON schema for a C2PA Manifest Store as defined in C2PA Technical Specification v2.1. This version introduced validation_results (structured validation), c2pa.ingredient.v3, c2pa.hash.bmff.v3, and the three-tier validation state model (Invalid/Valid/Trusted).",
+  "specVersion": "2.1",
+
+  "changes_from_v2_0": {
+    "added": [
+      "Three-tier validation state model: Invalid, Valid, Trusted",
+      "validation_results structure (activeManifest + ingredientDeltas) replacing flat validation_status",
+      "C2PA TSA Trust List for trusted timestamping authorities",
+      "c2pa.ingredient.v3: renamed fields for consistency, added data_types and claimSignature validation",
+      "c2pa.hash.bmff.v3: supports both fixed and variable block size hashing",
+      "ingredient.relationship enum: added 'inputTo' value",
+      "Structured ingredient validation_results (replacing flat validation_status in ingredients)"
+    ],
+    "assertion_labels": {
+      "c2pa.ingredient.v3": {
+        "description": "New version. Key changes from v2: fields renamed for consistency (e.g. 'instanceID' → 'instance_id'), data_types added, claimSignature validation supported.",
+        "relationship_values": ["parentOf", "componentOf", "inputTo"]
+      },
+      "c2pa.hash.bmff.v3": "New version supporting both fixed and variable BMFF block sizes."
+    },
+    "note": "validation_results is the preferred format from v2.1 onward. Older validation_status may still appear for backward compatibility."
+  },
+
+  "definitions": {
+    "ManifestStore": {
+      "type": "object",
+      "required": ["manifests"],
+      "properties": {
+        "active_manifest": { "type": "string" },
+        "manifests": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/Manifest" }
+        },
+        "validation_status": {
+          "type": "array",
+          "description": "Legacy flat validation list. Still present in v2.1 but superseded by validation_results.",
+          "items": { "$ref": "#/definitions/ValidationStatus" }
+        },
+        "validation_results": {
+          "$ref": "#/definitions/ValidationResults",
+          "description": "Introduced in v2.1. Preferred over validation_status."
+        },
+        "validation_state": {
+          "type": "string",
+          "description": "Introduced in v2.1.",
+          "enum": ["Invalid", "Valid", "Trusted"]
+        }
+      }
+    },
+
+    "Manifest": {
+      "type": "object",
+      "required": ["label", "instance_id"],
+      "properties": {
+        "label":               { "type": "string" },
+        "instance_id":         { "type": "string" },
+        "title":               { "type": "string" },
+        "claim_version":       { "type": "integer", "enum": [1, 2] },
+        "claim_generator":     { "type": "string", "description": "Claim v1 only." },
+        "claim_generator_info": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/ClaimGeneratorInfo" }
+        },
+        "thumbnail":   { "$ref": "#/definitions/ResourceRef" },
+        "ingredients": { "type": "array", "items": { "$ref": "#/definitions/Ingredient" } },
+        "assertions":  { "type": "array", "items": { "$ref": "#/definitions/AssertionEntry" } },
+        "signature_info": { "$ref": "#/definitions/SignatureInfo" },
+        "redacted_assertions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "ClaimGeneratorInfo": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name":    { "type": "string" },
+        "version": { "type": "string" },
+        "icon":    { "description": "HashedUri or HashedExternalUri" }
+      },
+      "additionalProperties": true
+    },
+
+    "SignatureInfo": {
+      "type": "object",
+      "properties": {
+        "alg":                { "type": "string" },
+        "issuer":             { "type": "string" },
+        "common_name":        { "type": "string" },
+        "cert_serial_number": { "type": "string" },
+        "time":               { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "ResourceRef": {
+      "type": "object",
+      "required": ["format", "identifier"],
+      "properties": {
+        "format":     { "type": "string" },
+        "identifier": { "type": "string" },
+        "data_types": { "type": "array", "items": { "$ref": "#/definitions/AssetType" } },
+        "alg":        { "type": "string" },
+        "hash":       { "type": "string" }
+      }
+    },
+
+    "Ingredient": {
+      "type": "object",
+      "required": ["instance_id", "relationship"],
+      "description": "Supports c2pa.ingredient (v1), c2pa.ingredient.v2, and the new c2pa.ingredient.v3.",
+      "properties": {
+        "title":           { "type": "string" },
+        "format":          { "type": "string" },
+        "instance_id":     { "type": "string" },
+        "document_id":     { "type": "string" },
+        "provenance":      { "type": "string" },
+        "hash":            { "type": "string" },
+        "relationship": {
+          "type": "string",
+          "description": "'inputTo' added in v2.1 via c2pa.ingredient.v3.",
+          "enum": ["parentOf", "componentOf", "inputTo"]
+        },
+        "thumbnail":          { "$ref": "#/definitions/ResourceRef" },
+        "active_manifest":    { "type": "string" },
+        "validation_status":  { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } },
+        "validation_results": { "$ref": "#/definitions/ValidationResults", "description": "v3 ingredients use this instead of validation_status." },
+        "data":               { "$ref": "#/definitions/ResourceRef" },
+        "description":        { "type": "string" },
+        "informational_URI":  { "type": "string" },
+        "metadata":           { "$ref": "#/definitions/AssertionMetadata" },
+        "data_types": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/AssetType" },
+          "description": "Added in c2pa.ingredient.v3."
+        },
+        "label": { "type": "string" }
+      }
+    },
+
+    "AssertionEntry": {
+      "type": "object",
+      "required": ["label"],
+      "properties": {
+        "label":    { "type": "string" },
+        "data":     { "type": "object" },
+        "instance": { "type": "integer" }
+      }
+    },
+
+    "AssetType": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type":    { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+
+    "AssertionMetadata": {
+      "type": "object",
+      "properties": {
+        "dateTime":      { "type": "string", "format": "date-time" },
+        "reviewRatings": { "type": "array" },
+        "reference":     { "$ref": "#/definitions/HashedUri" }
+      }
+    },
+
+    "HashedUri": {
+      "type": "object",
+      "required": ["url", "hash"],
+      "properties": {
+        "url":  { "type": "string" },
+        "hash": { "type": "string" },
+        "alg":  { "type": "string" }
+      }
+    },
+
+    "ValidationStatus": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code":        { "type": "string" },
+        "url":         { "type": "string" },
+        "explanation": { "type": "string" }
+      }
+    },
+
+    "ValidationResults": {
+      "type": "object",
+      "description": "Introduced in v2.1.",
+      "properties": {
+        "activeManifest": { "$ref": "#/definitions/StatusCodes" },
+        "ingredientDeltas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ingredientAssertionURI", "validationDeltas"],
+            "properties": {
+              "ingredientAssertionURI": { "type": "string" },
+              "validationDeltas":       { "$ref": "#/definitions/StatusCodes" }
+            }
+          }
+        }
+      }
+    },
+
+    "StatusCodes": {
+      "type": "object",
+      "properties": {
+        "success":       { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } },
+        "informational": { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } },
+        "failure":       { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } }
+      }
+    }
+  }
+}

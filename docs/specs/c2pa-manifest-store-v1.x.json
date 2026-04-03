@@ -1,0 +1,170 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "c2pa-manifest-store-v1.x",
+  "title": "C2PA Manifest Store — Specification v1.x (1.0–1.3)",
+  "description": "JSON schema for a C2PA Manifest Store as defined in C2PA Technical Specification v1.x (versions 1.0 through 1.3). This covers the original claim structure (c2pa.claim) before the v2.0 breaking changes. Key characteristics: free-text claim_generator, single assertions array, X.509 or other credential types permitted, no structured validation_results.",
+  "specVersion": "1.x",
+
+  "version_timeline": {
+    "1.0": "Initial release. c2pa.actions (v1), c2pa.ingredient (v1), c2pa.hash.data, c2pa.hash.bmff (v1).",
+    "1.1": "c2pa.hash.bmff.v2 introduced with improved security over v1.",
+    "1.3": "c2pa.actions.v2 introduced. Ingredient v2 preview."
+  },
+
+  "key_characteristics": {
+    "claim_structure":   "c2pa.claim (v1) — single assertions array, free-text claim_generator string, dc:format field present, assertion metadata at claim level",
+    "trust_model":       "X.509 certificates or other credential types. No mandatory C2PA Trust List.",
+    "validation":        "Flat validation_status array only. No validation_results, no validation_state.",
+    "assertion_labels": {
+      "c2pa.actions":         "v1 actions assertion. No digitalSourceType, no allActionsIncluded.",
+      "c2pa.actions.v2":      "Introduced in 1.3. Added digitalSourceType per action.",
+      "c2pa.ingredient":      "v1 ingredient. parentOf and componentOf relationships only.",
+      "c2pa.ingredient.v2":   "Late 1.x / early 2.0. Adds data and description fields.",
+      "c2pa.hash.data":       "Hard binding over asset byte ranges.",
+      "c2pa.hash.bmff":       "v1 BMFF hard binding. Deprecated in 2.0 in favor of v2.",
+      "c2pa.hash.bmff.v2":    "Introduced in 1.1. Improved security.",
+      "c2pa.metadata":        "Exif, IPTC, XMP, Schema.org metadata.",
+      "c2pa.thumbnail.claim": "Thumbnail of the asset at signing time.",
+      "c2pa.thumbnail.ingredient": "Thumbnail of an ingredient."
+    }
+  },
+
+  "definitions": {
+    "ManifestStore": {
+      "type": "object",
+      "required": ["manifests"],
+      "properties": {
+        "active_manifest": { "type": "string" },
+        "manifests": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/Manifest" }
+        },
+        "validation_status": {
+          "type": "array",
+          "description": "Flat validation list. Only format available in v1.x.",
+          "items": { "$ref": "#/definitions/ValidationStatus" }
+        }
+      }
+    },
+
+    "Manifest": {
+      "type": "object",
+      "required": ["label", "instance_id"],
+      "description": "A v1.x manifest uses c2pa.claim (claim_version: 1).",
+      "properties": {
+        "label":         { "type": "string" },
+        "instance_id":   { "type": "string" },
+        "title":         { "type": "string" },
+        "format": {
+          "type": "string",
+          "description": "IANA media type of the asset. Present in claim.v1 (v1.x); removed in claim.v2 (v2.0+)."
+        },
+        "claim_version": { "type": "integer", "enum": [1] },
+        "claim_generator": {
+          "type": "string",
+          "description": "Free-text generator identifier. The only generator field in v1.x claims."
+        },
+        "thumbnail":   { "$ref": "#/definitions/ResourceRef" },
+        "ingredients": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Ingredient" }
+        },
+        "assertions": {
+          "type": "array",
+          "description": "Single flat assertions array (no created_assertions / gathered_assertions split).",
+          "items": { "$ref": "#/definitions/AssertionEntry" }
+        },
+        "signature_info": { "$ref": "#/definitions/SignatureInfo" },
+        "redacted_assertions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "SignatureInfo": {
+      "type": "object",
+      "properties": {
+        "alg":                { "type": "string" },
+        "issuer":             { "type": "string" },
+        "common_name":        { "type": "string" },
+        "cert_serial_number": { "type": "string" },
+        "time":               { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "ResourceRef": {
+      "type": "object",
+      "required": ["format", "identifier"],
+      "properties": {
+        "format":     { "type": "string" },
+        "identifier": { "type": "string" },
+        "alg":        { "type": "string" },
+        "hash":       { "type": "string" }
+      }
+    },
+
+    "Ingredient": {
+      "type": "object",
+      "required": ["instance_id", "relationship"],
+      "description": "v1.x ingredients. 'inputTo' relationship did not exist. data/description fields only in v2 variant (late 1.x).",
+      "properties": {
+        "title":          { "type": "string" },
+        "format":         { "type": "string" },
+        "instance_id":    { "type": "string" },
+        "document_id":    { "type": "string" },
+        "provenance":     { "type": "string" },
+        "hash":           { "type": "string" },
+        "relationship": {
+          "type": "string",
+          "enum": ["parentOf", "componentOf"]
+        },
+        "thumbnail":         { "$ref": "#/definitions/ResourceRef" },
+        "active_manifest":   { "type": "string" },
+        "validation_status": { "type": "array", "items": { "$ref": "#/definitions/ValidationStatus" } },
+        "data": {
+          "$ref": "#/definitions/ResourceRef",
+          "description": "c2pa.ingredient.v2 only (introduced late 1.x / 2.0)."
+        },
+        "description": {
+          "type": "string",
+          "description": "c2pa.ingredient.v2 only."
+        },
+        "label": { "type": "string" }
+      }
+    },
+
+    "AssertionEntry": {
+      "type": "object",
+      "required": ["label"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Standard v1.x labels: c2pa.actions, c2pa.actions.v2 (1.3+), c2pa.ingredient, c2pa.ingredient.v2, c2pa.hash.data, c2pa.hash.bmff, c2pa.hash.bmff.v2, c2pa.metadata, c2pa.thumbnail.claim, c2pa.thumbnail.ingredient"
+        },
+        "data":     { "type": "object" },
+        "instance": { "type": "integer" }
+      }
+    },
+
+    "HashedUri": {
+      "type": "object",
+      "required": ["url", "hash"],
+      "properties": {
+        "url":  { "type": "string" },
+        "hash": { "type": "string" },
+        "alg":  { "type": "string" }
+      }
+    },
+
+    "ValidationStatus": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code":        { "type": "string" },
+        "url":         { "type": "string" },
+        "explanation": { "type": "string" }
+      }
+    }
+  }
+}

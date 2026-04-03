@@ -1,0 +1,684 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "c2pa-manifest-store-v2.4",
+  "title": "C2PA Manifest Store",
+  "description": "JSON schema for a C2PA Manifest Store as defined in C2PA Technical Specification v2.4. The manifest store is the top-level container for all provenance information associated with an asset.",
+  "specVersion": "2.4",
+  "type": "object",
+  "required": ["manifests"],
+  "properties": {
+    "active_manifest": {
+      "type": "string",
+      "description": "The label (URN) of the active manifest — the most recent manifest whose content bindings cover the current asset bytes. Format: 'urn:c2pa:<uuid>:<name>'."
+    },
+    "manifests": {
+      "type": "object",
+      "description": "A map of manifest label → Manifest object. Keys are URN strings of the form 'urn:c2pa:<uuid>:<name>'.",
+      "additionalProperties": { "$ref": "#/definitions/Manifest" }
+    },
+    "validation_status": {
+      "type": "array",
+      "description": "Flat list of top-level validation status entries (legacy v1/v2 format). Present when validation issues exist. Superseded by validation_results in v2.1+.",
+      "items": { "$ref": "#/definitions/ValidationStatus" }
+    },
+    "validation_results": {
+      "$ref": "#/definitions/ValidationResults",
+      "description": "Structured validation results map (v2.1+). Contains per-manifest success/informational/failure codes."
+    },
+    "validation_state": {
+      "type": "string",
+      "description": "Overall validation state of the manifest store.",
+      "enum": ["Invalid", "Valid", "Trusted"]
+    }
+  },
+
+  "definitions": {
+
+    "Manifest": {
+      "type": "object",
+      "description": "A C2PA Manifest: the complete provenance record for one version of an asset, comprising claim metadata, assertions, ingredient references, and a cryptographic signature.",
+      "required": ["label", "instance_id"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "The unique JUMBF label identifying this manifest within the store. Same as the key in the manifests map."
+        },
+        "instance_id": {
+          "type": "string",
+          "description": "XMP instance ID uniquely identifying this specific version of the asset. Format: 'xmp:iid:<uuid>'."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable name for the asset, typically the filename."
+        },
+        "format": {
+          "type": "string",
+          "description": "IANA media type of the asset (e.g. 'image/jpeg', 'video/mp4'). Present in v1 claims only; removed in claim.v2."
+        },
+        "claim_version": {
+          "type": "integer",
+          "description": "Version of the claim structure used. 1 = c2pa.claim (legacy), 2 = c2pa.claim.v2 (current).",
+          "enum": [1, 2]
+        },
+        "claim_generator": {
+          "type": "string",
+          "description": "Free-text string identifying the software that created the claim. Present in claim v1 only; replaced by claim_generator_info in claim.v2."
+        },
+        "claim_generator_info": {
+          "type": "array",
+          "description": "Structured list of software/hardware agents that created this claim (claim.v2+). Replaces the free-text claim_generator.",
+          "items": { "$ref": "#/definitions/ClaimGeneratorInfo" }
+        },
+        "thumbnail": {
+          "$ref": "#/definitions/ResourceRef",
+          "description": "Reference to a thumbnail image representing the visual content of this asset at the time of signing."
+        },
+        "ingredients": {
+          "type": "array",
+          "description": "List of ingredient assertions — references to source assets used to produce this asset.",
+          "items": { "$ref": "#/definitions/Ingredient" }
+        },
+        "assertions": {
+          "type": "array",
+          "description": "All assertions included in this manifest, each identified by label.",
+          "items": { "$ref": "#/definitions/AssertionEntry" }
+        },
+        "signature_info": {
+          "$ref": "#/definitions/SignatureInfo",
+          "description": "Information about the cryptographic signature on this manifest."
+        },
+        "redacted_assertions": {
+          "type": "array",
+          "description": "List of JUMBF URIs referencing assertions that have been redacted from this manifest.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "ClaimGeneratorInfo": {
+      "type": "object",
+      "description": "Describes a software or hardware agent that participated in creating the claim. Introduced in claim.v2 (C2PA 2.0). Additional vendor-specific fields may be present as top-level keys.",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the tool or application."
+        },
+        "version": {
+          "type": "string",
+          "description": "Version string of the tool."
+        },
+        "icon": {
+          "description": "Reference to an icon for the generator — either a hashed JUMBF URI or an external URL.",
+          "oneOf": [
+            { "$ref": "#/definitions/HashedUri" },
+            { "$ref": "#/definitions/HashedExternalUri" }
+          ]
+        },
+        "operating_system": {
+          "type": "string",
+          "description": "Operating system the generator ran on. Also accepted as 'schema.org.SoftwareApplication.operatingSystem'."
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "SignatureInfo": {
+      "type": "object",
+      "description": "Human-readable summary of the cryptographic signature. Not a security-critical structure — use the raw COSE signature for verification.",
+      "properties": {
+        "alg": {
+          "type": "string",
+          "description": "Signing algorithm identifier (e.g. 'Ps256', 'Es256', 'Ed25519')."
+        },
+        "issuer": {
+          "type": "string",
+          "description": "Human-readable issuing authority from the signing certificate."
+        },
+        "common_name": {
+          "type": "string",
+          "description": "Common name (CN) from the signing certificate."
+        },
+        "cert_serial_number": {
+          "type": "string",
+          "description": "Serial number of the signing certificate as a decimal string."
+        },
+        "time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp of when the signature was created (from the embedded timestamp or signing time)."
+        },
+        "revocation_status": {
+          "type": "string",
+          "description": "OCSP revocation status of the signing certificate."
+        }
+      }
+    },
+
+    "ResourceRef": {
+      "type": "object",
+      "description": "A reference to a binary resource (thumbnail, embedded data, etc.) stored within the manifest's JUMBF resource store.",
+      "required": ["format", "identifier"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "description": "IANA media type of the resource (e.g. 'image/jpeg', 'image/png')."
+        },
+        "identifier": {
+          "type": "string",
+          "description": "URI pointing to the resource. May be a relative JUMBF URI ('self#jumbf=...'), a file path, or an absolute URL."
+        },
+        "data_types": {
+          "type": "array",
+          "description": "Optional additional content-type classification.",
+          "items": { "$ref": "#/definitions/AssetType" }
+        },
+        "alg": {
+          "type": "string",
+          "description": "Hash algorithm used to hash this resource (if applicable)."
+        },
+        "hash": {
+          "type": "string",
+          "description": "Base64-encoded hash of the resource bytes."
+        }
+      }
+    },
+
+    "Ingredient": {
+      "type": "object",
+      "description": "Describes a source asset used to produce the current asset. Stored as a 'c2pa.ingredient', 'c2pa.ingredient.v2', or 'c2pa.ingredient.v3' assertion.",
+      "required": ["instance_id", "relationship"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Human-readable name of the ingredient asset, typically its filename."
+        },
+        "format": {
+          "type": "string",
+          "description": "IANA media type of the ingredient asset."
+        },
+        "instance_id": {
+          "type": "string",
+          "description": "XMP instance ID of the ingredient asset. Format: 'xmp.iid:<uuid>'."
+        },
+        "document_id": {
+          "type": "string",
+          "description": "XMP document ID ('xmpMM:DocumentID') of the ingredient."
+        },
+        "provenance": {
+          "type": "string",
+          "description": "URI from 'dcterms:provenance' XMP field — a reference to the ingredient's origin."
+        },
+        "hash": {
+          "type": "string",
+          "description": "Optional hash of the ingredient asset bytes for deduplication."
+        },
+        "relationship": {
+          "type": "string",
+          "description": "Describes how this ingredient relates to the current asset.",
+          "enum": ["parentOf", "componentOf", "inputTo"]
+        },
+        "thumbnail": {
+          "$ref": "#/definitions/ResourceRef",
+          "description": "Reference to a thumbnail of the ingredient asset."
+        },
+        "active_manifest": {
+          "type": "string",
+          "description": "Label of the active manifest in the ingredient's own manifest store, if the ingredient is a C2PA asset."
+        },
+        "validation_status": {
+          "type": "array",
+          "description": "Validation status codes for this ingredient (v1/v2 format).",
+          "items": { "$ref": "#/definitions/ValidationStatus" }
+        },
+        "validation_results": {
+          "$ref": "#/definitions/ValidationResults",
+          "description": "Structured validation results for this ingredient's manifest store (v3 / C2PA 2.1+)."
+        },
+        "data": {
+          "$ref": "#/definitions/ResourceRef",
+          "description": "Reference to the actual binary data of the ingredient (v2+)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Additional human-readable description of the ingredient."
+        },
+        "informational_URI": {
+          "type": "string",
+          "description": "URI to an informational page about the ingredient or its data."
+        },
+        "metadata": {
+          "$ref": "#/definitions/AssertionMetadata",
+          "description": "Additional assertion-level metadata."
+        },
+        "data_types": {
+          "type": "array",
+          "description": "Content-type classification of the ingredient data (v2+).",
+          "items": { "$ref": "#/definitions/AssetType" }
+        },
+        "label": {
+          "type": "string",
+          "description": "The assertion label used for this ingredient (e.g. 'c2pa.ingredient.v3', 'c2pa.ingredient.v3__1')."
+        }
+      }
+    },
+
+    "AssertionEntry": {
+      "type": "object",
+      "description": "A single assertion entry as it appears in the manifest's assertions array.",
+      "required": ["label"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Namespaced assertion label (e.g. 'c2pa.actions.v2', 'c2pa.metadata', 'stds.exif'). Multiple instances use suffix '__1', '__2', etc."
+        },
+        "data": {
+          "description": "The assertion payload. Structure varies by label — see assertion definitions below.",
+          "oneOf": [
+            { "$ref": "#/definitions/ActionsAssertion" },
+            { "$ref": "#/definitions/MetadataAssertion" },
+            { "type": "object" }
+          ]
+        },
+        "instance": {
+          "type": "integer",
+          "description": "0-based instance index when multiple assertions share the same label."
+        }
+      }
+    },
+
+    "ActionsAssertion": {
+      "type": "object",
+      "description": "Payload for 'c2pa.actions' (v1) and 'c2pa.actions.v2' assertions. Records the editing history of the asset.",
+      "required": ["actions"],
+      "properties": {
+        "actions": {
+          "type": "array",
+          "description": "Ordered list of actions performed on the asset.",
+          "items": { "$ref": "#/definitions/Action" }
+        },
+        "softwareAgents": {
+          "type": "array",
+          "description": "Shared list of software agents; individual actions reference these by index. (v2+)",
+          "items": { "$ref": "#/definitions/ClaimGeneratorInfo" }
+        },
+        "allActionsIncluded": {
+          "type": "boolean",
+          "description": "If true, declares that no actions occurred that are not represented in this assertion. (v2+)"
+        },
+        "templates": {
+          "type": "array",
+          "description": "Reusable action templates referenced by actions in this assertion. (v2+)",
+          "items": { "$ref": "#/definitions/Action" }
+        },
+        "metadata": {
+          "$ref": "#/definitions/AssertionMetadata",
+          "description": "Optional assertion-level metadata."
+        }
+      }
+    },
+
+    "Action": {
+      "type": "object",
+      "description": "A single editing action performed on the asset.",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Action identifier. Standard values are defined in the c2pa namespace.",
+          "examples": [
+            "c2pa.color_adjustments",
+            "c2pa.converted",
+            "c2pa.created",
+            "c2pa.cropped",
+            "c2pa.drawing",
+            "c2pa.edited",
+            "c2pa.filtered",
+            "c2pa.opened",
+            "c2pa.orientation",
+            "c2pa.placed",
+            "c2pa.published",
+            "c2pa.repackaged",
+            "c2pa.resized",
+            "c2pa.redacted",
+            "c2pa.removed",
+            "c2pa.transcoded",
+            "c2pa.unknown"
+          ]
+        },
+        "when": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp of when this action occurred."
+        },
+        "softwareAgent": {
+          "description": "The software agent that performed this action (inline or index reference).",
+          "oneOf": [
+            { "$ref": "#/definitions/ClaimGeneratorInfo" },
+            { "type": "string" }
+          ]
+        },
+        "softwareAgentIndex": {
+          "type": "integer",
+          "description": "0-based index into the parent assertion's softwareAgents array. (v2+)"
+        },
+        "changed": {
+          "type": "string",
+          "description": "Semicolon-delimited list of asset parts changed by this action."
+        },
+        "changes": {
+          "type": "array",
+          "description": "Regions of interest in the asset that were changed.",
+          "items": { "type": "object", "description": "RegionOfInterest (see c2pa.region-of-interest assertion spec)" }
+        },
+        "parameters": {
+          "$ref": "#/definitions/ActionParameters",
+          "description": "Additional action-specific parameters."
+        },
+        "actors": {
+          "type": "array",
+          "description": "Humans who performed this action (when applicable).",
+          "items": { "$ref": "#/definitions/Actor" }
+        },
+        "digitalSourceType": {
+          "type": "string",
+          "description": "IPTC or C2PA digital source type URI describing the nature of the content (e.g. 'http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia')."
+        },
+        "related": {
+          "type": "array",
+          "description": "List of related actions.",
+          "items": { "$ref": "#/definitions/Action" }
+        },
+        "reason": {
+          "type": "string",
+          "description": "Required when action is 'c2pa.redacted'. Explains why the assertion was redacted."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of this specific action."
+        }
+      }
+    },
+
+    "ActionParameters": {
+      "type": "object",
+      "description": "Action-specific parameters. Fields present depend on the action type.",
+      "properties": {
+        "ingredient": {
+          "$ref": "#/definitions/HashedUri",
+          "description": "Hashed URI to the ingredient this action operated on (v1 actions)."
+        },
+        "ingredients": {
+          "type": "array",
+          "description": "Hashed URIs to ingredient assertion(s) this action operated on (v2+ actions).",
+          "items": { "$ref": "#/definitions/HashedUri" }
+        },
+        "redacted": {
+          "type": "string",
+          "description": "JUMBF URI to the assertion being redacted. Required when action is 'c2pa.redacted'."
+        },
+        "description": {
+          "type": "string",
+          "description": "Additional description of the action."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the operation performed (e.g. 'brightnesscontrast' for c2pa.color_adjustments)."
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "Actor": {
+      "type": "object",
+      "description": "Identifies a human actor who participated in an action.",
+      "properties": {
+        "identifier": {
+          "type": "string",
+          "description": "An identifier for the human actor. Used when the reviewAction type is 'humanEntry.identified'."
+        },
+        "credentials": {
+          "type": "array",
+          "description": "References to W3C Verifiable Credentials for this actor.",
+          "items": { "$ref": "#/definitions/HashedUri" }
+        }
+      }
+    },
+
+    "MetadataAssertion": {
+      "type": "object",
+      "description": "Payload for 'c2pa.metadata' assertion. Contains Dublin Core, IPTC, XMP, Exif, or Schema.org metadata fields. Field names follow their respective namespace conventions."
+    },
+
+    "HashedUri": {
+      "type": "object",
+      "description": "A URI reference with an associated cryptographic hash, used to reference and verify JUMBF-embedded resources.",
+      "required": ["url", "hash"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "JUMBF URI referencing the target resource. Format: 'self#jumbf=...' for embedded resources."
+        },
+        "hash": {
+          "type": "string",
+          "description": "Base64-encoded hash of the referenced resource."
+        },
+        "alg": {
+          "type": "string",
+          "description": "Hash algorithm used. If absent, the claim's default algorithm applies."
+        }
+      }
+    },
+
+    "HashedExternalUri": {
+      "type": "object",
+      "description": "A hash-verified reference to an external (HTTP/HTTPS) resource.",
+      "required": ["url", "alg", "hash"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Absolute HTTP/HTTPS URL of the external resource."
+        },
+        "alg": {
+          "type": "string",
+          "description": "Hash algorithm (mandatory for external URIs)."
+        },
+        "hash": {
+          "type": "string",
+          "description": "Base64-encoded hash of the external resource."
+        },
+        "dc:format": {
+          "type": "string",
+          "description": "IANA media type of the external resource."
+        },
+        "size": {
+          "type": "integer",
+          "description": "Size of the external resource in bytes."
+        },
+        "data_types": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/AssetType" }
+        }
+      }
+    },
+
+    "AssetType": {
+      "type": "object",
+      "description": "Content-type classification providing more detail than MIME type alone.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "A URN or other identifier naming the content type (e.g. a schema.org type or C2PA-defined type)."
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional version string for the content type."
+        }
+      }
+    },
+
+    "AssertionMetadata": {
+      "type": "object",
+      "description": "Optional metadata attached to an assertion, describing how it was reviewed or generated.",
+      "properties": {
+        "dateTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 date-time of assertion creation."
+        },
+        "reviewRatings": {
+          "type": "array",
+          "description": "List of human or automated review ratings for this assertion.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": { "type": "integer", "description": "Rating value 1–5." },
+              "code": {
+                "type": "string",
+                "description": "Reviewer provenance code.",
+                "examples": [
+                  "signer",
+                  "claimGenerator.REE",
+                  "claimGenerator.TEE",
+                  "localProvider.REE",
+                  "localProvider.TEE",
+                  "remoteProvider.1stParty",
+                  "remoteProvider.3rdParty",
+                  "humanEntry.anonymous",
+                  "humanEntry.identified"
+                ]
+              },
+              "explanation": { "type": "string", "description": "Human-readable explanation for the rating." }
+            }
+          }
+        },
+        "reference": {
+          "$ref": "#/definitions/HashedUri",
+          "description": "Optional reference to an external resource supporting this assertion."
+        }
+      }
+    },
+
+    "ValidationStatus": {
+      "type": "object",
+      "description": "A single validation status entry reporting success, informational, or failure information about part of the manifest.",
+      "required": ["code"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Dot-namespaced status code.",
+          "$comment": "See ValidationStatusCodes definition for all defined values."
+        },
+        "url": {
+          "type": "string",
+          "description": "JUMBF URI pointing to the manifest part this status applies to."
+        },
+        "explanation": {
+          "type": "string",
+          "description": "Human-readable explanation of the status."
+        }
+      }
+    },
+
+    "ValidationResults": {
+      "type": "object",
+      "description": "Structured validation results for a manifest store (C2PA 2.1+). Replaces the flat validation_status array.",
+      "properties": {
+        "activeManifest": {
+          "$ref": "#/definitions/StatusCodes",
+          "description": "Validation results for the active manifest's signature, timestamps, and assertion hashes."
+        },
+        "ingredientDeltas": {
+          "type": "array",
+          "description": "Per-ingredient validation deltas — changes from the ingredient's own validation results.",
+          "items": { "$ref": "#/definitions/IngredientDelta" }
+        }
+      }
+    },
+
+    "StatusCodes": {
+      "type": "object",
+      "description": "Categorized validation status codes for one manifest.",
+      "properties": {
+        "success": {
+          "type": "array",
+          "description": "Checks that passed.",
+          "items": { "$ref": "#/definitions/ValidationStatus" }
+        },
+        "informational": {
+          "type": "array",
+          "description": "Non-fatal notices (e.g. untrusted timestamp TSA).",
+          "items": { "$ref": "#/definitions/ValidationStatus" }
+        },
+        "failure": {
+          "type": "array",
+          "description": "Checks that failed (e.g. untrusted signing certificate).",
+          "items": { "$ref": "#/definitions/ValidationStatus" }
+        }
+      }
+    },
+
+    "IngredientDelta": {
+      "type": "object",
+      "description": "Validation delta for a single ingredient — differences between the ingredient's stored validation results and those computed at validation time.",
+      "required": ["ingredientAssertionURI", "validationDeltas"],
+      "properties": {
+        "ingredientAssertionURI": {
+          "type": "string",
+          "description": "Absolute JUMBF URI referencing the ingredient assertion this delta applies to."
+        },
+        "validationDeltas": {
+          "$ref": "#/definitions/StatusCodes",
+          "description": "The success/informational/failure deltas for this ingredient."
+        }
+      }
+    },
+
+    "ValidationStatusCodes": {
+      "type": "string",
+      "description": "All defined C2PA validation status codes with their severity levels.",
+      "$comment": "SUCCESS codes",
+      "enum_with_descriptions": {
+        "claimSignature.validated":          { "severity": "success",       "description": "Claim COSE signature verified successfully." },
+        "claimSignature.insideValidity":     { "severity": "success",       "description": "Signing time is within the certificate validity period." },
+        "signingCredential.trusted":         { "severity": "success",       "description": "Signing certificate chains to a trusted root in the C2PA Trust List." },
+        "signingCredential.ocsp.notRevoked": { "severity": "success",       "description": "OCSP check confirms the signing certificate is not revoked." },
+        "timeStamp.validated":               { "severity": "success",       "description": "RFC 3161 timestamp signature is valid." },
+        "timeStamp.trusted":                 { "severity": "success",       "description": "Timestamp authority certificate chains to a trusted TSA root." },
+        "assertion.hashedURI.match":         { "severity": "success",       "description": "Hashed URI in the claim matches the referenced assertion content." },
+        "assertion.dataHash.match":          { "severity": "success",       "description": "Data hash assertion matches the asset bytes." },
+        "assertion.bmffHash.match":          { "severity": "success",       "description": "BMFF hash assertion matches the BMFF asset structure." },
+        "assertion.boxesHash.match":         { "severity": "success",       "description": "Box hash assertion matches the asset's box structure." },
+        "assertion.collectionHash.match":    { "severity": "success",       "description": "Collection hash assertion matches the asset collection." },
+        "assertion.accessible":              { "severity": "success",       "description": "All claim assertions are accessible and readable." },
+        "ingredient.manifest.validated":     { "severity": "success",       "description": "Ingredient's embedded manifest was validated successfully." },
+        "ingredient.claimSignature.validated":{ "severity": "success",      "description": "Ingredient's claim signature validated successfully." },
+        "timeOfSigning.insideValidity":      { "severity": "success",       "description": "Claimed signing time is within certificate validity." },
+        "signingCredential.ocsp.skipped":    { "severity": "informational", "description": "OCSP check was skipped (offline or policy)." },
+        "signingCredential.ocsp.inaccessible":{ "severity":"informational", "description": "OCSP responder was unreachable at validation time." },
+        "timeStamp.untrusted":               { "severity": "informational", "description": "Timestamp TSA certificate not in Trust List, but timestamp itself is structurally valid." },
+        "timeStamp.mismatch":                { "severity": "informational", "description": "Timestamp time does not match the claimed signing time." },
+        "timeStamp.outsideValidity":         { "severity": "informational", "description": "Timestamp is outside the TSA certificate validity period." },
+        "timeStamp.malformed":               { "severity": "informational", "description": "Timestamp structure is malformed but non-fatal." },
+        "ingredient.unknownProvenance":      { "severity": "informational", "description": "Ingredient has no embedded manifest; provenance cannot be verified." },
+        "manifest.unknownProvenance":        { "severity": "informational", "description": "Manifest references an ingredient without provenance information." },
+        "manifest.unreferenced":             { "severity": "informational", "description": "Manifest in the store is not referenced via any ingredient assertion." },
+        "algorithm.deprecated":              { "severity": "informational", "description": "A deprecated hash or signing algorithm is in use." },
+        "assertion.dataHash.additionalExclusionsPresent": { "severity": "informational", "description": "Data hash assertion contains additional exclusion ranges not in the claim." },
+        "claimSignature.missing":            { "severity": "failure",       "description": "No claim signature found in the manifest." },
+        "claimSignature.mismatch":           { "severity": "failure",       "description": "Claim signature does not match the claim content." },
+        "signingCredential.untrusted":       { "severity": "failure",       "description": "Signing certificate does not chain to a trusted root." },
+        "claim.malformed":                   { "severity": "failure",       "description": "Claim structure is malformed or invalid." },
+        "claim.missing":                     { "severity": "failure",       "description": "No claim found in the manifest." },
+        "claim.multiple":                    { "severity": "failure",       "description": "Multiple claims found; only one is permitted." },
+        "claim.required.missing":            { "severity": "failure",       "description": "A required claim field is absent." },
+        "claim.cbor.invalid":                { "severity": "failure",       "description": "Claim CBOR encoding is invalid." },
+        "claim.hardBindings.missing":        { "severity": "failure",       "description": "No hard binding assertions present in the claim." },
+        "assertion.multipleHardBindings":    { "severity": "failure",       "description": "Multiple hard binding assertions found; only one is permitted." },
+        "ingredient.hashedURI.mismatch":     { "severity": "failure",       "description": "Hashed URI in an ingredient assertion does not match." }
+      }
+    }
+  }
+}
