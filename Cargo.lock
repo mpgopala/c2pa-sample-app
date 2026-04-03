@@ -649,6 +649,9 @@ dependencies = [
  "muda 0.11.5",
  "rfd 0.15.4",
  "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -659,6 +662,7 @@ dependencies = [
  "c2pa",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -3526,6 +3530,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
 name = "matches"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3733,6 +3746,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d127e00b37b19c36c28ac00e874240a61faeea14c7b759b1d9c77efa048322a"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "nu-ansi-term"
+version = "0.50.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
+dependencies = [
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6379,6 +6401,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+ "valuable",
+]
+
+[[package]]
+name = "tracing-log"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
+dependencies = [
+ "log",
+ "once_cell",
+ "tracing-core",
 ]
 
 [[package]]
@@ -6387,9 +6421,16 @@ version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
+ "matchers",
+ "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
  "sharded-slab",
+ "smallvec",
  "thread_local",
+ "tracing",
  "tracing-core",
+ "tracing-log",
 ]
 
 [[package]]
@@ -6606,6 +6647,12 @@ dependencies = [
  "serde_core",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "valuable"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
 name = "vcpkg"

@@ -6,6 +6,7 @@ use crate::menu::rebuild_recents_menu;
 use dioxus::prelude::*;
 use serde_json::Value;
 use std::collections::HashSet;
+use tracing::{debug, info};
 
 // ── flat tree data model ─────────────────────────────────────────────────────
 
@@ -221,8 +222,10 @@ pub fn VerifyPage() -> Element {
     // Verify a file path and update all relevant state.
     // Also rebuilds the native "Recent Files" menu after updating recents.
     let mut open_file = move |path: String| {
+        info!(target: "c2pa_tool::ui::verify", "Opening file for verification: {path}");
         file.set(Some(path.clone()));
         let verify_result = verify_embedded_manifest(&path);
+        debug!(target: "c2pa_tool::ui::verify", "Verification complete, state: {:?}", verify_result.state);
         push_recent(&path, &mut recents.write());
         rebuild_recents_menu(&recents.peek());
         expanded.set(default_expanded());
@@ -253,10 +256,13 @@ pub fn VerifyPage() -> Element {
                     button {
                         class: "btn btn-sm",
                         onclick: move |_| {
+                            info!(target: "c2pa_tool::ui::verify", "Browse dialog opened");
                             spawn(async move {
                                 if let Some(handle) = rfd::AsyncFileDialog::new().pick_file().await {
                                     let path_str = handle.path().to_string_lossy().to_string();
                                     open_file(path_str);
+                                } else {
+                                    debug!(target: "c2pa_tool::ui::verify", "Browse dialog cancelled");
                                 }
                             });
                         },

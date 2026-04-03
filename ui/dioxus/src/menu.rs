@@ -1,12 +1,47 @@
 use c2pa_sample_app::model::recents::RecentEntry;
-use muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use crate::logger::LogLevel;
+use muda::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-// Submenu is not Send+Sync, so it lives in a thread-local (UI always runs on the main thread).
+// Submenus / check items are not Send+Sync — keep them in thread-locals.
 thread_local! {
     static RECENTS_SUBMENU: RefCell<Option<Submenu>> = const { RefCell::new(None) };
+    static LOG_PANE_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
+    static LOG_LEVEL_ITEMS: RefCell<Vec<(LogLevel, CheckMenuItem)>> = const { RefCell::new(Vec::new()) };
+}
+
+pub const MENU_TOGGLE_LOG: &str = "view-toggle-log";
+
+/// Map a menu event ID to a LogLevel; returns None for non-level IDs.
+pub fn log_level_for_id(id: &str) -> Option<LogLevel> {
+    match id {
+        "log-level-trace" => Some(LogLevel::Trace),
+        "log-level-debug" => Some(LogLevel::Debug),
+        "log-level-info"  => Some(LogLevel::Info),
+        "log-level-warn"  => Some(LogLevel::Warn),
+        "log-level-error" => Some(LogLevel::Error),
+        _                 => None,
+    }
+}
+
+/// Sync the native check state of all Log Level menu items.
+pub fn set_active_log_level(active: &LogLevel) {
+    LOG_LEVEL_ITEMS.with(|cell| {
+        for (level, item) in cell.borrow().iter() {
+            item.set_checked(level == active);
+        }
+    });
+}
+
+/// Sync the native check state of the "Show Log Pane" menu item.
+pub fn set_log_pane_checked(checked: bool) {
+    LOG_PANE_ITEM.with(|cell| {
+        if let Some(item) = cell.borrow().as_ref() {
+            item.set_checked(checked);
+        }
+    });
 }
 
 static RECENT_ID_MAP: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
@@ -80,6 +115,34 @@ pub fn build_app_menu(recents: &[RecentEntry]) -> Menu {
         &PredefinedMenuItem::select_all(None),
     ]);
     let _ = menu.append(&edit_menu);
+
+    // ── View ─────────────────────────────────────────────────────────────────
+    let view_menu = Submenu::new("View", true);
+    let log_item = CheckMenuItem::with_id(MENU_TOGGLE_LOG, "Show Log Pane", true, true, None);
+    let _ = view_menu.append(&log_item);
+    LOG_PANE_ITEM.with(|cell| *cell.borrow_mut() = Some(log_item));
+
+    let _ = view_menu.append(&PredefinedMenuItem::separator());
+
+    let level_sub = Submenu::new("Log Level", true);
+    let level_defs: &[(&str, &str, LogLevel)] = &[
+        ("log-level-trace", "Trace", LogLevel::Trace),
+        ("log-level-debug", "Debug", LogLevel::Debug),
+        ("log-level-info",  "Info",  LogLevel::Info),
+        ("log-level-warn",  "Warn",  LogLevel::Warn),
+        ("log-level-error", "Error", LogLevel::Error),
+    ];
+    let mut level_items: Vec<(LogLevel, CheckMenuItem)> = Vec::new();
+    for (id, label, level) in level_defs {
+        let checked = matches!(level, LogLevel::Trace);
+        let item = CheckMenuItem::with_id(*id, *label, true, checked, None);
+        let _ = level_sub.append(&item);
+        level_items.push((level.clone(), item));
+    }
+    LOG_LEVEL_ITEMS.with(|cell| *cell.borrow_mut() = level_items);
+    let _ = view_menu.append(&level_sub);
+
+    let _ = menu.append(&view_menu);
 
     // ── Window (macOS) ────────────────────────────────────────────────────────
     #[cfg(target_os = "macos")]

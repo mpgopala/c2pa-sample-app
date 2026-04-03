@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use tracing::{debug, info};
 
 #[derive(Clone, PartialEq)]
 enum ConfigMode { File, Json }
@@ -21,11 +22,18 @@ pub fn SettingsPage() -> Element {
                 for (i, t) in trust_lists.read().iter().enumerate() {
                     div { class: "trust-item",
                         span { "{t}" }
-                        button { class: "btn btn-sm btn-danger", onclick: move |_| { trust_lists.write().remove(i); }, "Remove" }
+                        button { class: "btn btn-sm btn-danger", onclick: move |_| {
+                            let removed = trust_lists.read().get(i).cloned().unwrap_or_default();
+                            info!(target: "c2pa_tool::ui::settings", "Trust list entry removed: {removed}");
+                            trust_lists.write().remove(i);
+                        }, "Remove" }
                     }
                 }
                 div { class: "add-row",
-                    button { class: "btn btn-sm", onclick: move |_| trust_lists.write().push("new-trust.pem".into()), "+ Add" }
+                    button { class: "btn btn-sm", onclick: move |_| {
+                        info!(target: "c2pa_tool::ui::settings", "Trust list entry added: new-trust.pem");
+                        trust_lists.write().push("new-trust.pem".into());
+                    }, "+ Add" }
                 }
             }
 
@@ -33,7 +41,10 @@ pub fn SettingsPage() -> Element {
                 div { class: "card-title", "Configuration" }
                 div { class: "radio-group",
                     label {
-                        input { r#type: "radio", checked: *config_mode.read() == ConfigMode::File, onchange: move |_| config_mode.set(ConfigMode::File) }
+                        input { r#type: "radio", checked: *config_mode.read() == ConfigMode::File, onchange: move |_| {
+                            debug!(target: "c2pa_tool::ui::settings", "Config mode set to: File");
+                            config_mode.set(ConfigMode::File);
+                        } }
                         " Load from file"
                     }
                     if *config_mode.read() == ConfigMode::File {
@@ -43,7 +54,10 @@ pub fn SettingsPage() -> Element {
                         }
                     }
                     label {
-                        input { r#type: "radio", checked: *config_mode.read() == ConfigMode::Json, onchange: move |_| config_mode.set(ConfigMode::Json) }
+                        input { r#type: "radio", checked: *config_mode.read() == ConfigMode::Json, onchange: move |_| {
+                            debug!(target: "c2pa_tool::ui::settings", "Config mode set to: JSON");
+                            config_mode.set(ConfigMode::Json);
+                        } }
                         " Load from JSON"
                     }
                     if *config_mode.read() == ConfigMode::Json {
@@ -73,8 +87,8 @@ pub fn SettingsPage() -> Element {
             }
 
             div { class: "settings-actions",
-                button { class: "btn", "Reset to Default" }
-                button { class: "btn btn-primary", "Save" }
+                button { class: "btn", onclick: move |_| info!(target: "c2pa_tool::ui::settings", "Settings reset to default"), "Reset to Default" }
+                button { class: "btn btn-primary", onclick: move |_| info!(target: "c2pa_tool::ui::settings", "Settings saved"), "Save" }
             }
         }
     }

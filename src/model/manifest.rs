@@ -1,7 +1,10 @@
 use base64::{engine::general_purpose, Engine};
-use c2pa::{Error, Manifest, ManifestAssertion, Reader, ValidationState};
+use c2pa::{Builder, Error, Manifest, ManifestAssertion, Reader, ValidationState};
+pub use c2pa::SigningAlg;
+use tracing::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -133,28 +136,39 @@ fn summarize_manifest(m: &Manifest) -> ManifestSummary {
 /// Read the embedded C2PA manifest from `path` and return a summary.
 /// Returns `NoManifest` if the file has no embedded manifest.
 pub fn verify_embedded_manifest(path: &str) -> VerifyResult {
+    info!(target: "c2pa_tool::verify", "Verifying: {path}");
     match Reader::from_file(path) {
-        Err(Error::JumbfNotFound) => VerifyResult {
-            file_path: path.to_string(),
-            state: VerifyValidationState::NoManifest,
-            manifest: None,
-            all_manifests: vec![],
-            validation_statuses: vec![],
-        },
-        Err(_) => VerifyResult {
-            file_path: path.to_string(),
-            state: VerifyValidationState::Invalid,
-            manifest: None,
-            all_manifests: vec![],
-            validation_statuses: vec![],
-        },
+        Err(Error::JumbfNotFound) => {
+            info!(target: "c2pa_tool::verify", "No C2PA manifest found in {path}");
+            VerifyResult {
+                file_path: path.to_string(),
+                state: VerifyValidationState::NoManifest,
+                manifest: None,
+                all_manifests: vec![],
+                validation_statuses: vec![],
+            }
+        }
+        Err(e) => {
+            error!(target: "c2pa_tool::verify", "Failed to read manifest: {e}");
+            VerifyResult {
+                file_path: path.to_string(),
+                state: VerifyValidationState::Invalid,
+                manifest: None,
+                all_manifests: vec![],
+                validation_statuses: vec![],
+            }
+        }
         Ok(reader) => {
             let state = match reader.validation_state() {
-                ValidationState::Trusted => VerifyValidationState::Trusted,
-                ValidationState::Valid => VerifyValidationState::Valid,
-                ValidationState::Invalid => VerifyValidationState::Invalid,
+                ValidationState::Trusted => { info!(target: "c2pa_tool::verify", "Validation: TRUSTED"); VerifyValidationState::Trusted }
+                ValidationState::Valid   => { info!(target: "c2pa_tool::verify", "Validation: VALID");   VerifyValidationState::Valid }
+                ValidationState::Invalid => { warn!(target: "c2pa_tool::verify", "Validation: INVALID"); VerifyValidationState::Invalid }
             };
             let manifest = reader.active_manifest().map(summarize_manifest);
+            if let Some(m) = &manifest {
+                debug!(target: "c2pa_tool::verify", "Active manifest: {} ({} assertions, {} ingredients)",
+                    m.label, m.assertions.len(), m.ingredients.len());
+            }
             let active_label = manifest.as_ref().map(|m| m.label.clone());
             let all_manifests = reader
                 .iter_manifests()
@@ -179,4 +193,120 @@ pub fn verify_embedded_manifest(path: &str) -> VerifyResult {
             }
         }
     }
+}
+
+/// An ingredient to embed in the manifest.
+#[derive(Clone, Debug)]
+pub struct IngredientEntry {
+    pub path: String,
+    /// "parentOf" | "componentOf" | "inputTo"
+    pub relationship: String,
+    pub title: Option<String>,
+}
+
+/// Parameters common to both actions (add-manifest and sign-asset).
+pub struct ManifestParams {
+    pub source: String,
+    pub title: Option<String>,
+    pub format: Option<String>,
+    /// (label, data) pairs — data is the assertion payload JSON value.
+    pub assertions: Vec<(String, Value)>,
+    pub ingredients: Vec<IngredientEntry>,
+}
+
+/// Parameters for signing an asset with a C2PA manifest.
+pub struct SignParams {
+    pub manifest: ManifestParams,
+    pub dest: String,
+    pub cert_path: String,
+    pub key_path: String,
+    pub alg: SigningAlg,
+}
+
+fn ext_to_mime(source: &str) -> &'static str {
+    match Path::new(source)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("png")                => "image/png",
+        Some("mp4") | Some("m4v") => "video/mp4",
+        Some("mov")                => "video/quicktime",
+        Some("avi")                => "video/avi",
+        Some("pdf")                => "application/pdf",
+        Some("tiff") | Some("tif") => "image/tiff",
+        Some("webp")               => "image/webp",
+        _                          => "application/octet-stream",
+    }
+}
+
+fn build_builder(p: &ManifestParams) -> Result<Builder, String> {
+    let format = p.format.as_deref().unwrap_or_else(|| ext_to_mime(&p.source)).to_string();
+
+    let assertion_values: Vec<Value> = p.assertions.iter()
+        .map(|(label, data)| json!({ "label": label, "data": data }))
+        .collect();
+
+    let mut def = json!({ "format": format, "assertions": assertion_values });
+    if let Some(t) = &p.title {
+        def["title"] = json!(t);
+    }
+
+    let mut builder = Builder::from_json(&def.to_string())
+        .map_err(|e| format!("Failed to create manifest builder: {e}"))?;
+
+    for ing_entry in &p.ingredients {
+        let mut ingredient = c2pa::Ingredient::from_file(&ing_entry.path)
+            .map_err(|e| format!("Failed to load ingredient '{}': {e}", ing_entry.path))?;
+        if let Some(t) = &ing_entry.title {
+            ingredient.set_title(t);
+        }
+        let rel = match ing_entry.relationship.as_str() {
+            "parentOf" => c2pa::Relationship::ParentOf,
+            "inputTo"  => c2pa::Relationship::InputTo,
+            _          => c2pa::Relationship::ComponentOf,
+        };
+        ingredient.set_relationship(rel);
+        builder.add_ingredient(ingredient);
+    }
+
+    Ok(builder)
+}
+
+/// Export a C2PA manifest archive (.c2pa) without signing the asset.
+/// `dest` should end in `.c2pa`.
+/// Returns the destination path on success.
+pub fn add_manifest(params: ManifestParams, dest: String) -> Result<String, String> {
+    info!(target: "c2pa_tool::sign", "Exporting manifest archive: {dest}");
+    debug!(target: "c2pa_tool::sign", "Source: {}, assertions: {}", params.source, params.assertions.len());
+    let mut builder = build_builder(&params)?;
+    let mut file = std::fs::File::create(&dest)
+        .map_err(|e| format!("Cannot create file '{dest}': {e}"))?;
+    builder.to_archive(&mut file)
+        .map_err(|e| { error!(target: "c2pa_tool::sign", "Archive failed: {e}"); format!("Failed to write manifest archive: {e}") })?;
+    info!(target: "c2pa_tool::sign", "Manifest archive written: {dest}");
+    Ok(dest)
+}
+
+/// Sign `params.manifest.source` and write the signed output to `params.dest`.
+/// Returns the destination path on success.
+pub fn sign_asset(params: SignParams) -> Result<String, String> {
+    info!(target: "c2pa_tool::sign", "Signing asset: {} → {}", params.manifest.source, params.dest);
+    debug!(target: "c2pa_tool::sign", "Algorithm: {:?}, assertions: {}, ingredients: {}",
+        params.alg, params.manifest.assertions.len(), params.manifest.ingredients.len());
+    let mut builder = build_builder(&params.manifest)?;
+
+    let signer = c2pa::create_signer::from_files(
+        &params.cert_path, &params.key_path, params.alg, None,
+    ).map_err(|e| { error!(target: "c2pa_tool::sign", "Signer load failed: {e}"); format!("Failed to load signer: {e}") })?;
+
+    info!(target: "c2pa_tool::sign", "Signer loaded, embedding manifest…");
+    builder
+        .sign_file(signer.as_ref(), &params.manifest.source, &params.dest)
+        .map_err(|e| { error!(target: "c2pa_tool::sign", "Sign failed: {e}"); format!("Signing failed: {e}") })?;
+
+    info!(target: "c2pa_tool::sign", "Signed asset written: {}", params.dest);
+    Ok(params.dest)
 }
