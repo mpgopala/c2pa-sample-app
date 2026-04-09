@@ -1,18 +1,23 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Maximum number of entries kept in the recent-files list.
 const MAX_RECENTS: usize = 10;
 
+/// A single entry in the recently-opened files list.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecentEntry {
     /// Full filesystem path to the file.
     pub path: String,
-    /// Filename component only (for display).
+    /// Filename component only (for display in menus and cards).
     pub name: String,
-    /// Unix timestamp (seconds) of when the file was last opened.
+    /// Unix timestamp (seconds) of when the file was last opened in this app.
     pub timestamp: u64,
 }
 
+/// Return the path to the persisted recents JSON file.
+///
+/// The file lives at `~/.c2pa-tool/recents.json` on all platforms.
 fn recents_path() -> PathBuf {
     let base = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -21,12 +26,19 @@ fn recents_path() -> PathBuf {
     base.join(".c2pa-tool").join("recents.json")
 }
 
-/// Load persisted recent entries, returning an empty list on any error.
+/// Load the persisted recent-files list from disk.
+///
+/// Returns an empty [`Vec`] if the file does not exist or cannot be parsed;
+/// errors are silently swallowed so the app starts cleanly on first launch.
 pub fn load_recents() -> Vec<RecentEntry> {
     let data = std::fs::read_to_string(recents_path()).unwrap_or_default();
     serde_json::from_str(&data).unwrap_or_default()
 }
 
+/// Persist `entries` to disk as JSON, creating parent directories as needed.
+///
+/// Write errors are silently ignored — a stale or missing recents file is
+/// not fatal.
 fn save_recents(entries: &[RecentEntry]) {
     let path = recents_path();
     if let Some(parent) = path.parent() {
@@ -37,8 +49,11 @@ fn save_recents(entries: &[RecentEntry]) {
     }
 }
 
-/// Add `path` to the front of `entries`, deduplicating and capping at
-/// `MAX_RECENTS`.  Persists immediately.
+/// Prepend `path` to `entries`, deduplicating and capping the list at
+/// 10 entries, then immediately persist it to disk.
+///
+/// If `path` already appears in the list it is moved to the front rather
+/// than duplicated.  The timestamp is always refreshed to the current time.
 pub fn push_recent(path: &str, entries: &mut Vec<RecentEntry>) {
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

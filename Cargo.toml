@@ -1,5 +1,5 @@
 [workspace]
-members = ["ui/dioxus"]
+members = ["ui/dioxus", "ui/tauri/src-tauri"]
 default-members = ["ui/dioxus"]
 resolver = "2"
 

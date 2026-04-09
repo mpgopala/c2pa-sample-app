@@ -6,76 +6,115 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
 
+/// Overall C2PA validation outcome for a verified asset.
+///
+/// Returned as part of [`VerifyResult`] and maps directly to the c2pa-rs
+/// [`ValidationState`] enum, with an extra `NoManifest` variant for files
+/// that contain no C2PA data at all.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum VerifyValidationState {
+    /// The signing certificate chains to a trusted root.
     Trusted,
+    /// The manifest is cryptographically valid but the certificate is not
+    /// in any known trust list.
     Valid,
+    /// Validation failed (tampered content, expired certificate, etc.).
     Invalid,
+    /// The file contains no embedded C2PA manifest store.
     NoManifest,
 }
 
+/// A single C2PA assertion extracted from a manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AssertionSummary {
+    /// Assertion label, e.g. `"c2pa.actions"` or `"stds.schema-org.CreativeWork"`.
     pub label: String,
     /// 1-based instance index when multiple assertions share the same label (v2.4).
     pub instance: usize,
+    /// Full assertion payload deserialised into a JSON value.
     pub data: Value,
 }
 
+/// A single ingredient extracted from a manifest.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IngredientSummary {
+    /// Human-readable title of the ingredient asset.
     pub title: Option<String>,
+    /// IANA media type of the ingredient asset.
     pub format: Option<String>,
+    /// Unique XMP instance ID (`xmpMM:InstanceID`) of the ingredient.
     pub instance_id: String,
+    /// XMP document ID (`xmpMM:DocumentID`) of the ingredient, if present.
     pub document_id: Option<String>,
+    /// Relationship of this ingredient to the containing asset
+    /// (`"parentOf"`, `"componentOf"`, or `"inputTo"`).
     pub relationship: String,
     /// Label of the active manifest in the ingredient's own manifest store (v2.4).
     pub active_manifest: Option<String>,
+    /// Optional human-readable description of the ingredient.
     pub description: Option<String>,
+    /// Optional URI pointing to additional information about the ingredient.
     pub informational_uri: Option<String>,
-    /// Assertion label used for this ingredient (e.g. "c2pa.ingredient.v3") (v2.4).
+    /// Assertion label used for this ingredient entry (e.g. `"c2pa.ingredient.v3"`) (v2.4).
     pub label: Option<String>,
+    /// Full ingredient object serialised to JSON for display purposes.
     pub data: Value,
 }
 
+/// A summary of a single C2PA manifest within a manifest store.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ManifestSummary {
+    /// JUMBF label that uniquely identifies this manifest within the store.
     pub label: String,
+    /// XMP instance ID of the asset this manifest describes.
     pub instance_id: String,
+    /// Human-readable title of the asset.
     pub title: Option<String>,
     /// IANA media type of the asset. Present in claim v1 only (v2.4).
     pub format: Option<String>,
-    /// Claim structure version: 1 = c2pa.claim, 2 = c2pa.claim.v2 (v2.4).
+    /// Claim structure version: `1` = `c2pa.claim`, `2` = `c2pa.claim.v2` (v2.4).
     pub claim_version: Option<u8>,
     /// Free-text claim generator string. Present in claim v1 only (v2.4).
     pub claim_generator: Option<String>,
-    /// Structured generator info list. Replaces claim_generator in claim v2 (v2.4).
+    /// Structured generator info list. Replaces `claim_generator` in claim v2 (v2.4).
     pub claim_generator_info: Option<Vec<Value>>,
+    /// Issuer distinguished name from the signing certificate.
     pub issuer: Option<String>,
     /// Common name (CN) from the signing certificate (v2.4).
     pub common_name: Option<String>,
     /// Serial number of the signing certificate (v2.4).
     pub cert_serial_number: Option<String>,
+    /// ISO-8601 signing timestamp, if present in the claim.
     pub signing_time: Option<String>,
-    /// Signing algorithm identifier (v2.4).
+    /// Signing algorithm identifier, e.g. `"Es256"` (v2.4).
     pub signature_alg: Option<String>,
-    /// OCSP revocation status of the signing certificate (v2.4).
+    /// OCSP revocation status of the signing certificate: `true` = good (v2.4).
     pub revocation_status: Option<bool>,
+    /// Base-64 data URI of the embedded thumbnail, ready for use in an `<img src>`.
     pub thumbnail_data_uri: Option<String>,
+    /// All assertions found in this manifest.
     pub assertions: Vec<AssertionSummary>,
+    /// All ingredients referenced by this manifest.
     pub ingredients: Vec<IngredientSummary>,
 }
 
+/// The complete verification result for a single asset file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifyResult {
+    /// Absolute path of the file that was verified.
     pub file_path: String,
+    /// Overall validation outcome.
     pub state: VerifyValidationState,
+    /// Summary of the active (most recent) manifest, or `None` if absent.
     pub manifest: Option<ManifestSummary>,
+    /// Summaries of all other manifests in the store (provenance chain).
     pub all_manifests: Vec<ManifestSummary>,
+    /// Raw validation status objects from c2pa-rs, serialised to JSON.
     pub validation_statuses: Vec<Value>,
 }
 
+/// Convert a c2pa-rs [`Manifest`] into a [`ManifestSummary`] suitable for the UI.
 fn summarize_manifest(m: &Manifest) -> ManifestSummary {
     let thumbnail_data_uri = m.thumbnail().map(|(format, bytes)| {
         let encoded = general_purpose::STANDARD.encode(bytes.as_ref());
@@ -133,8 +172,13 @@ fn summarize_manifest(m: &Manifest) -> ManifestSummary {
     }
 }
 
-/// Read the embedded C2PA manifest from `path` and return a summary.
-/// Returns `NoManifest` if the file has no embedded manifest.
+/// Read the embedded C2PA manifest from `path` and return a verification summary.
+///
+/// Opens the file with [`Reader::from_file`], which also runs full manifest
+/// validation (signature, hash, trust list).  If the file has no C2PA data
+/// the returned [`VerifyResult::state`] is [`VerifyValidationState::NoManifest`].
+///
+/// This function never panics; all errors are captured in the result.
 pub fn verify_embedded_manifest(path: &str) -> VerifyResult {
     info!(target: "c2pa_tool::verify", "Verifying: {path}");
     match Reader::from_file(path) {
@@ -195,34 +239,50 @@ pub fn verify_embedded_manifest(path: &str) -> VerifyResult {
     }
 }
 
-/// An ingredient to embed in the manifest.
+/// A file to embed as an ingredient in a manifest.
 #[derive(Clone, Debug)]
 pub struct IngredientEntry {
+    /// Absolute path to the ingredient file.
     pub path: String,
-    /// "parentOf" | "componentOf" | "inputTo"
+    /// C2PA relationship of this ingredient to the parent asset.
+    /// One of `"parentOf"`, `"componentOf"`, or `"inputTo"`.
     pub relationship: String,
+    /// Optional override title for the ingredient (defaults to the filename).
     pub title: Option<String>,
 }
 
-/// Parameters common to both actions (add-manifest and sign-asset).
+/// Parameters shared by both [`add_manifest`] and [`sign_asset`].
 pub struct ManifestParams {
+    /// Absolute path of the source asset file.
     pub source: String,
+    /// Optional manifest title; if `None` the filename is used.
     pub title: Option<String>,
+    /// Override MIME type for the asset.  When `None` the type is inferred
+    /// from the file extension.
     pub format: Option<String>,
-    /// (label, data) pairs — data is the assertion payload JSON value.
+    /// Assertions to embed, as `(label, data)` pairs where `data` is the
+    /// JSON payload for that assertion type.
     pub assertions: Vec<(String, Value)>,
+    /// Ingredient files to reference in the manifest.
     pub ingredients: Vec<IngredientEntry>,
 }
 
-/// Parameters for signing an asset with a C2PA manifest.
+/// Parameters for the [`sign_asset`] operation.
 pub struct SignParams {
+    /// Manifest content and source asset.
     pub manifest: ManifestParams,
+    /// Absolute path where the signed output file should be written.
     pub dest: String,
+    /// Absolute path to the signing certificate chain file (PEM).
     pub cert_path: String,
+    /// Absolute path to the private key file (PEM).
     pub key_path: String,
+    /// Signing algorithm to use.
     pub alg: SigningAlg,
 }
 
+/// Infer the IANA media type for `source` from its file extension.
+/// Falls back to `"application/octet-stream"` for unrecognised extensions.
 fn ext_to_mime(source: &str) -> &'static str {
     match Path::new(source)
         .extension()
@@ -242,6 +302,11 @@ fn ext_to_mime(source: &str) -> &'static str {
     }
 }
 
+/// Build a c2pa-rs [`Builder`] from [`ManifestParams`].
+///
+/// Constructs the manifest JSON, loads each ingredient from disk, and
+/// attaches it with the specified relationship.  Returns an error string
+/// if any ingredient file cannot be opened.
 fn build_builder(p: &ManifestParams) -> Result<Builder, String> {
     let format = p.format.as_deref().unwrap_or_else(|| ext_to_mime(&p.source)).to_string();
 
@@ -275,9 +340,16 @@ fn build_builder(p: &ManifestParams) -> Result<Builder, String> {
     Ok(builder)
 }
 
-/// Export a C2PA manifest archive (.c2pa) without signing the asset.
-/// `dest` should end in `.c2pa`.
-/// Returns the destination path on success.
+/// Export a C2PA manifest archive (`.c2pa`) for `params.source` without
+/// embedding or signing it.
+///
+/// This is useful for inspecting or distributing the manifest separately
+/// from the asset.  The archive can later be attached to an asset with
+/// standard C2PA tools.
+///
+/// # Errors
+/// Returns an error string if the builder cannot be constructed, the
+/// output file cannot be created, or the archive serialisation fails.
 pub fn add_manifest(params: ManifestParams, dest: String) -> Result<String, String> {
     info!(target: "c2pa_tool::sign", "Exporting manifest archive: {dest}");
     debug!(target: "c2pa_tool::sign", "Source: {}, assertions: {}", params.source, params.assertions.len());
@@ -290,8 +362,15 @@ pub fn add_manifest(params: ManifestParams, dest: String) -> Result<String, Stri
     Ok(dest)
 }
 
-/// Sign `params.manifest.source` and write the signed output to `params.dest`.
-/// Returns the destination path on success.
+/// Sign `params.manifest.source` with the provided certificate and key,
+/// embedding the C2PA manifest, and write the result to `params.dest`.
+///
+/// The source file is read-only; a new signed copy is created at `dest`.
+///
+/// # Errors
+/// Returns an error string if the builder cannot be constructed, the signer
+/// cannot be initialised from the provided certificate/key files, or the
+/// signing operation itself fails.
 pub fn sign_asset(params: SignParams) -> Result<String, String> {
     info!(target: "c2pa_tool::sign", "Signing asset: {} → {}", params.manifest.source, params.dest);
     debug!(target: "c2pa_tool::sign", "Algorithm: {:?}, assertions: {}, ingredients: {}",
