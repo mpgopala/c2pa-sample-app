@@ -3,7 +3,7 @@ use c2pa_sample_app::model::manifest::{
     IngredientEntry, ManifestParams, SignParams, SigningAlg, VerifyResult,
 };
 use c2pa_sample_app::model::recents::{load_recents, push_recent, RecentEntry};
-use c2pa_sample_app::model::signer_prefs::{load_signer_prefs, save_signer_prefs, SignerPrefs};
+use c2pa_sample_app::model::preferences::{load_preferences, save_preferences, Preferences};
 use crate::logger::{drain_logs, LogEntry};
 use serde::Deserialize;
 use serde_json::Value;
@@ -36,7 +36,7 @@ pub struct SignParamsDto {
 }
 
 #[derive(Deserialize)]
-pub struct SignerPrefsDto {
+pub struct PreferencesDto {
     pub cert_path: String,
     pub key_path: String,
     pub alg: String,
@@ -113,13 +113,13 @@ pub fn drain_logs_cmd() -> Vec<LogEntry> {
 }
 
 #[tauri::command]
-pub fn load_signer_prefs_cmd() -> SignerPrefs {
-    load_signer_prefs()
+pub fn load_preferences_cmd() -> Preferences {
+    load_preferences()
 }
 
 #[tauri::command]
-pub fn save_signer_prefs_cmd(prefs: SignerPrefsDto) {
-    save_signer_prefs(&SignerPrefs {
+pub fn save_preferences_cmd(prefs: PreferencesDto) {
+    save_preferences(&Preferences {
         cert_path: prefs.cert_path,
         key_path: prefs.key_path,
         alg: prefs.alg,

@@ -94,8 +94,8 @@ function basename(path) {
     return path.split(/[/\\]/).pop() || path;
 }
 
-function saveSignerPrefs() {
-    invoke('save_signer_prefs_cmd', {
+function savePreferences() {
+    invoke('save_preferences_cmd', {
         prefs: { cert_path: state.sign.cert, key_path: state.sign.key, alg: state.sign.alg }
     }).catch(() => {});
 }
@@ -370,19 +370,19 @@ function bindSignEvents() {
     });
 
     // Cert / key
-    document.getElementById('sign-cert')?.addEventListener('input', e => { s.cert = e.target.value; saveSignerPrefs(); });
-    document.getElementById('sign-key')?.addEventListener('input', e => { s.key = e.target.value; saveSignerPrefs(); });
+    document.getElementById('sign-cert')?.addEventListener('input', e => { s.cert = e.target.value; savePreferences(); });
+    document.getElementById('sign-key')?.addEventListener('input', e => { s.key = e.target.value; savePreferences(); });
     document.getElementById('sign-browse-cert')?.addEventListener('click', async () => {
         const p = await dialogOpen({ filters: [{ name: 'PEM', extensions: ['pem','crt'] }] });
-        if (p) { s.cert = p; saveSignerPrefs(); renderPage(); }
+        if (p) { s.cert = p; savePreferences(); renderPage(); }
     });
     document.getElementById('sign-browse-key')?.addEventListener('click', async () => {
         const p = await dialogOpen({ filters: [{ name: 'PEM', extensions: ['pem','key'] }] });
-        if (p) { s.key = p; saveSignerPrefs(); renderPage(); }
+        if (p) { s.key = p; savePreferences(); renderPage(); }
     });
 
     // Algorithm
-    document.getElementById('sign-alg')?.addEventListener('change', e => { s.alg = e.target.value; saveSignerPrefs(); });
+    document.getElementById('sign-alg')?.addEventListener('change', e => { s.alg = e.target.value; savePreferences(); });
 
     // Manifest fields
     document.getElementById('sign-title')?.addEventListener('input', e => { s.title = e.target.value; });
@@ -1131,7 +1131,7 @@ async function init() {
 
     // Load saved signer preferences (cert, key, algorithm)
     try {
-        const prefs = await invoke('load_signer_prefs_cmd');
+        const prefs = await invoke('load_preferences_cmd');
         if (prefs) {
             state.sign.cert = prefs.cert_path || '';
             state.sign.key = prefs.key_path || '';

@@ -1,5 +1,5 @@
 use c2pa_sample_app::model::manifest::{add_manifest, sign_asset, IngredientEntry, ManifestParams, SignParams, SigningAlg};
-use c2pa_sample_app::model::signer_prefs::{load_signer_prefs, save_signer_prefs, SignerPrefs};
+use c2pa_sample_app::model::preferences::{load_preferences, save_preferences, Preferences};
 use dioxus::prelude::*;
 use serde_json::{json, Value};
 use tracing::{debug, info};
@@ -313,7 +313,7 @@ pub fn SignPage() -> Element {
     let mut assertions: Signal<Vec<AssertionEntry>> = use_signal(Vec::new);
     let mut ingredients: Signal<Vec<IngredientEntry>> = use_signal(Vec::new);
     // Load saved signer preferences once on first render.
-    let saved_prefs = use_hook(load_signer_prefs);
+    let saved_prefs = use_hook(load_preferences);
     let mut cert: Signal<String> = use_signal(|| saved_prefs.cert_path.clone());
     let mut key: Signal<String> = use_signal(|| saved_prefs.key_path.clone());
     let mut alg: Signal<SigningAlg> = use_signal(|| {
@@ -328,12 +328,12 @@ pub fn SignPage() -> Element {
     let mut custom_label: Signal<String> = use_signal(String::new);
 
     let persist_prefs = move || {
-        let prefs = SignerPrefs {
+        let prefs = Preferences {
             cert_path: cert.read().clone(),
             key_path: key.read().clone(),
             alg: format!("{:?}", *alg.read()),
         };
-        save_signer_prefs(&prefs);
+        save_preferences(&prefs);
     };
 
     let has_file = move || file.read().is_some();

@@ -19,8 +19,8 @@ pub fn run() {
             load_recents_cmd,
             push_recent_cmd,
             drain_logs_cmd,
-            load_signer_prefs_cmd,
-            save_signer_prefs_cmd,
+            load_preferences_cmd,
+            save_preferences_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
