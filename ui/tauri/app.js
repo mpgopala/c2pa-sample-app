@@ -62,7 +62,7 @@ const state = {
     },
     log: {
         entries: [], autoScroll: true, filterText: '', filterLevel: null,
-        height: 220, dragging: false, dragStartY: 0, dragStartH: 220, visible: true,
+        height: 220, dragging: false, dragStartY: 0, dragStartH: 220, visible: false,
     },
 };
 
@@ -997,6 +997,12 @@ function levelCss(level) {
 function renderLogPane() {
     const logEl = document.getElementById('log-pane');
     const l = state.log;
+    const contentArea = document.getElementById('content-area');
+    if (!l.visible) {
+        contentArea.classList.add('log-hidden');
+        return;
+    }
+    contentArea.classList.remove('log-hidden');
     logEl.style.height = l.height + 'px';
 
     logEl.innerHTML = `
@@ -1132,6 +1138,20 @@ async function init() {
             state.sign.alg = prefs.alg || 'Es256';
         }
     } catch (_) {}
+
+    // Log pane toggle button in nav
+    const nav = document.querySelector('.nav');
+    const logToggle = document.createElement('button');
+    logToggle.className = 'nav-tab';
+    logToggle.id = 'toggle-log';
+    logToggle.textContent = 'Log';
+    logToggle.style.marginLeft = 'auto';
+    logToggle.addEventListener('click', () => {
+        state.log.visible = !state.log.visible;
+        logToggle.classList.toggle('active', state.log.visible);
+        renderLogPane();
+    });
+    nav.appendChild(logToggle);
 
     renderPage();
     renderLogPane();
