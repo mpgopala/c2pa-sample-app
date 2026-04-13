@@ -94,6 +94,12 @@ function basename(path) {
     return path.split(/[/\\]/).pop() || path;
 }
 
+function saveSignerPrefs() {
+    invoke('save_signer_prefs_cmd', {
+        prefs: { cert_path: state.sign.cert, key_path: state.sign.key, alg: state.sign.alg }
+    }).catch(() => {});
+}
+
 function defaultDataFor(label) {
     switch (label) {
         case 'c2pa.actions':
@@ -364,19 +370,19 @@ function bindSignEvents() {
     });
 
     // Cert / key
-    document.getElementById('sign-cert')?.addEventListener('input', e => { s.cert = e.target.value; });
-    document.getElementById('sign-key')?.addEventListener('input', e => { s.key = e.target.value; });
+    document.getElementById('sign-cert')?.addEventListener('input', e => { s.cert = e.target.value; saveSignerPrefs(); });
+    document.getElementById('sign-key')?.addEventListener('input', e => { s.key = e.target.value; saveSignerPrefs(); });
     document.getElementById('sign-browse-cert')?.addEventListener('click', async () => {
         const p = await dialogOpen({ filters: [{ name: 'PEM', extensions: ['pem','crt'] }] });
-        if (p) { s.cert = p; renderPage(); }
+        if (p) { s.cert = p; saveSignerPrefs(); renderPage(); }
     });
     document.getElementById('sign-browse-key')?.addEventListener('click', async () => {
         const p = await dialogOpen({ filters: [{ name: 'PEM', extensions: ['pem','key'] }] });
-        if (p) { s.key = p; renderPage(); }
+        if (p) { s.key = p; saveSignerPrefs(); renderPage(); }
     });
 
     // Algorithm
-    document.getElementById('sign-alg')?.addEventListener('change', e => { s.alg = e.target.value; });
+    document.getElementById('sign-alg')?.addEventListener('change', e => { s.alg = e.target.value; saveSignerPrefs(); });
 
     // Manifest fields
     document.getElementById('sign-title')?.addEventListener('input', e => { s.title = e.target.value; });
@@ -1115,6 +1121,16 @@ async function init() {
     // Load recents
     try {
         state.verify.recents = await invoke('load_recents_cmd');
+    } catch (_) {}
+
+    // Load saved signer preferences (cert, key, algorithm)
+    try {
+        const prefs = await invoke('load_signer_prefs_cmd');
+        if (prefs) {
+            state.sign.cert = prefs.cert_path || '';
+            state.sign.key = prefs.key_path || '';
+            state.sign.alg = prefs.alg || 'Es256';
+        }
     } catch (_) {}
 
     renderPage();
