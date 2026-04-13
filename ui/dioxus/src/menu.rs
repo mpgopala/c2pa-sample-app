@@ -118,7 +118,7 @@ pub fn build_app_menu(recents: &[RecentEntry]) -> Menu {
 
     // ── View ─────────────────────────────────────────────────────────────────
     let view_menu = Submenu::new("View", true);
-    let log_item = CheckMenuItem::with_id(MENU_TOGGLE_LOG, "Show Log Pane", true, true, None);
+    let log_item = CheckMenuItem::with_id(MENU_TOGGLE_LOG, "Show Log Pane", true, false, None);
     let _ = view_menu.append(&log_item);
     LOG_PANE_ITEM.with(|cell| *cell.borrow_mut() = Some(log_item));
 
