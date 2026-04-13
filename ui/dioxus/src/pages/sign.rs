@@ -1,4 +1,5 @@
 use c2pa_sample_app::model::manifest::{add_manifest, sign_asset, IngredientEntry, ManifestParams, SignParams, SigningAlg};
+use c2pa_sample_app::model::signer_prefs::{load_signer_prefs, save_signer_prefs, SignerPrefs};
 use dioxus::prelude::*;
 use serde_json::{json, Value};
 use tracing::{debug, info};
@@ -311,12 +312,29 @@ pub fn SignPage() -> Element {
     let mut title: Signal<String> = use_signal(String::new);
     let mut assertions: Signal<Vec<AssertionEntry>> = use_signal(Vec::new);
     let mut ingredients: Signal<Vec<IngredientEntry>> = use_signal(Vec::new);
-    let mut cert: Signal<String> = use_signal(String::new);
-    let mut key: Signal<String> = use_signal(String::new);
-    let mut alg: Signal<SigningAlg> = use_signal(|| SigningAlg::Es256);
+    // Load saved signer preferences once on first render.
+    let saved_prefs = use_hook(load_signer_prefs);
+    let mut cert: Signal<String> = use_signal(|| saved_prefs.cert_path.clone());
+    let mut key: Signal<String> = use_signal(|| saved_prefs.key_path.clone());
+    let mut alg: Signal<SigningAlg> = use_signal(|| {
+        // Convert stored string back to SigningAlg enum.
+        ALGS.iter()
+            .find(|a| format!("{a:?}") == saved_prefs.alg)
+            .copied()
+            .unwrap_or(SigningAlg::Es256)
+    });
     let mut sign_result: Signal<SignResult> = use_signal(|| SignResult::Idle);
     let mut busy: Signal<bool> = use_signal(|| false);
     let mut custom_label: Signal<String> = use_signal(String::new);
+
+    let persist_prefs = move || {
+        let prefs = SignerPrefs {
+            cert_path: cert.read().clone(),
+            key_path: key.read().clone(),
+            alg: format!("{:?}", *alg.read()),
+        };
+        save_signer_prefs(&prefs);
+    };
 
     let has_file = move || file.read().is_some();
     let can_add_manifest = move || has_file() && !manifest_dest.read().is_empty();
@@ -422,6 +440,7 @@ pub fn SignPage() -> Element {
                                 let s = e.value();
                                 if let Some(a) = ALGS.iter().find(|a| format!("{a:?}") == s) {
                                     alg.set(*a);
+                                    persist_prefs();
                                 }
                             },
                             for a in ALGS {
@@ -434,7 +453,7 @@ pub fn SignPage() -> Element {
                         div { class: "inline-row",
                             input {
                                 r#type: "text", value: "{cert}", placeholder: "cert.pem", style: "flex:1",
-                                oninput: move |e| cert.set(e.value())
+                                oninput: move |e| { cert.set(e.value()); persist_prefs(); }
                             }
                             button {
                                 class: "btn btn-sm",
@@ -443,7 +462,7 @@ pub fn SignPage() -> Element {
                                         .add_filter("PEM", &["pem","crt"])
                                         .add_filter("All files", &["*"])
                                         .pick_file().await
-                                    { cert.set(h.path().to_string_lossy().to_string()); }
+                                    { cert.set(h.path().to_string_lossy().to_string()); persist_prefs(); }
                                 }); },
                                 "Browse"
                             }
@@ -454,7 +473,7 @@ pub fn SignPage() -> Element {
                         div { class: "inline-row",
                             input {
                                 r#type: "text", value: "{key}", placeholder: "key.pem", style: "flex:1",
-                                oninput: move |e| key.set(e.value())
+                                oninput: move |e| { key.set(e.value()); persist_prefs(); }
                             }
                             button {
                                 class: "btn btn-sm",
@@ -463,7 +482,7 @@ pub fn SignPage() -> Element {
                                         .add_filter("PEM", &["pem","key"])
                                         .add_filter("All files", &["*"])
                                         .pick_file().await
-                                    { key.set(h.path().to_string_lossy().to_string()); }
+                                    { key.set(h.path().to_string_lossy().to_string()); persist_prefs(); }
                                 }); },
                                 "Browse"
                             }
