@@ -23,7 +23,7 @@ pub fn App() -> Element {
         use_context_provider(|| Signal::new(None::<String>));
 
     // ── Logging state ─────────────────────────────────────────────────────────
-    let mut log_visible: Signal<bool> = use_signal(|| true);
+    let mut log_visible: Signal<bool> = use_signal(|| false);
     let mut log_entries: Signal<Vec<LogEntry>> =
         use_context_provider(|| Signal::new(Vec::<LogEntry>::new()));
 

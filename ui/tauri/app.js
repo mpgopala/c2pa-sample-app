@@ -62,7 +62,7 @@ const state = {
     },
     log: {
         entries: [], autoScroll: true, filterText: '', filterLevel: null,
-        height: 220, dragging: false, dragStartY: 0, dragStartH: 220, visible: true,
+        height: 220, dragging: false, dragStartY: 0, dragStartH: 220, visible: false,
     },
 };
 
@@ -92,6 +92,12 @@ function deriveManifestDest(src) {
 
 function basename(path) {
     return path.split(/[/\\]/).pop() || path;
+}
+
+function savePreferences() {
+    invoke('save_preferences_cmd', {
+        prefs: { cert_path: state.sign.cert, key_path: state.sign.key, alg: state.sign.alg }
+    }).catch(() => {});
 }
 
 function defaultDataFor(label) {
@@ -364,19 +370,19 @@ function bindSignEvents() {
     });
 
     // Cert / key
-    document.getElementById('sign-cert')?.addEventListener('input', e => { s.cert = e.target.value; });
-    document.getElementById('sign-key')?.addEventListener('input', e => { s.key = e.target.value; });
+    document.getElementById('sign-cert')?.addEventListener('input', e => { s.cert = e.target.value; savePreferences(); });
+    document.getElementById('sign-key')?.addEventListener('input', e => { s.key = e.target.value; savePreferences(); });
     document.getElementById('sign-browse-cert')?.addEventListener('click', async () => {
         const p = await dialogOpen({ filters: [{ name: 'PEM', extensions: ['pem','crt'] }] });
-        if (p) { s.cert = p; renderPage(); }
+        if (p) { s.cert = p; savePreferences(); renderPage(); }
     });
     document.getElementById('sign-browse-key')?.addEventListener('click', async () => {
         const p = await dialogOpen({ filters: [{ name: 'PEM', extensions: ['pem','key'] }] });
-        if (p) { s.key = p; renderPage(); }
+        if (p) { s.key = p; savePreferences(); renderPage(); }
     });
 
     // Algorithm
-    document.getElementById('sign-alg')?.addEventListener('change', e => { s.alg = e.target.value; });
+    document.getElementById('sign-alg')?.addEventListener('change', e => { s.alg = e.target.value; savePreferences(); });
 
     // Manifest fields
     document.getElementById('sign-title')?.addEventListener('input', e => { s.title = e.target.value; });
@@ -991,6 +997,12 @@ function levelCss(level) {
 function renderLogPane() {
     const logEl = document.getElementById('log-pane');
     const l = state.log;
+    const contentArea = document.getElementById('content-area');
+    if (!l.visible) {
+        contentArea.classList.add('log-hidden');
+        return;
+    }
+    contentArea.classList.remove('log-hidden');
     logEl.style.height = l.height + 'px';
 
     logEl.innerHTML = `
@@ -1116,6 +1128,30 @@ async function init() {
     try {
         state.verify.recents = await invoke('load_recents_cmd');
     } catch (_) {}
+
+    // Load saved signer preferences (cert, key, algorithm)
+    try {
+        const prefs = await invoke('load_preferences_cmd');
+        if (prefs) {
+            state.sign.cert = prefs.cert_path || '';
+            state.sign.key = prefs.key_path || '';
+            state.sign.alg = prefs.alg || 'Es256';
+        }
+    } catch (_) {}
+
+    // Log pane toggle button in nav
+    const nav = document.querySelector('.nav');
+    const logToggle = document.createElement('button');
+    logToggle.className = 'nav-tab';
+    logToggle.id = 'toggle-log';
+    logToggle.textContent = 'Log';
+    logToggle.style.marginLeft = 'auto';
+    logToggle.addEventListener('click', () => {
+        state.log.visible = !state.log.visible;
+        logToggle.classList.toggle('active', state.log.visible);
+        renderLogPane();
+    });
+    nav.appendChild(logToggle);
 
     renderPage();
     renderLogPane();
