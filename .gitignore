@@ -21,3 +21,8 @@ target
 #.idea/
 
 *.DS_Store
+
+.claude
+
+graphify-out/
+.planning
