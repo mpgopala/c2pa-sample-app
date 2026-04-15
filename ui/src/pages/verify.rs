@@ -4,7 +4,6 @@ use model::manifest::{
     VerifyValidationState,
 };
 use model::recents::{push_recent, RecentEntry};
-use crate::menu::rebuild_recents_menu;
 use dioxus::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -697,14 +696,16 @@ pub fn VerifyPage() -> Element {
     let mut pending_open: Signal<Option<String>> = use_context();
 
     // Verify a file path and update all relevant state.
-    // Also rebuilds the native "Recent Files" menu after updating recents.
+    // `push_recent` persists ~/.c2pa-tool/recents.json. We do **not** rebuild the native
+    // File ▸ Recent Files menu at runtime: muda/AppKit crashes when removing items from the
+    // attached submenu after launch (`MenuChild::remove_inner` / `panic_cannot_unwind`).
+    // The OS menu reflects recents from the last app start; the in-app recents signal is always current.
     let mut open_file = move |path: String| {
         info!(target: "c2pa_sample_app::ui::verify", "Opening file for verification: {path}");
         file.set(Some(path.clone()));
         let verify_result = verify_embedded_manifest(&path);
         debug!(target: "c2pa_sample_app::ui::verify", "Verification complete, state: {:?}", verify_result.state);
         push_recent(&path, &mut recents.write());
-        rebuild_recents_menu(&recents.peek());
         expanded.set(default_expanded());
         highlighted.set(None);
         result.set(Some(verify_result));

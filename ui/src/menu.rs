@@ -11,7 +11,6 @@ use std::sync::{Mutex, OnceLock};
 
 // Submenus / check items are not Send+Sync — keep them in thread-locals.
 thread_local! {
-    static RECENTS_SUBMENU: RefCell<Option<Submenu>> = const { RefCell::new(None) };
     static LOG_PANE_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
     static LOG_LEVEL_ITEMS: RefCell<Vec<(LogLevel, CheckMenuItem)>> = const { RefCell::new(Vec::new()) };
 }
@@ -61,10 +60,6 @@ fn id_for(path: &str) -> String {
 /// Decode a menu event ID back to a file path; returns `None` for non-recent IDs.
 pub fn path_for_id(id: &str) -> Option<String> {
     id.strip_prefix("recent::").map(str::to_string)
-}
-
-fn remove_all_items(sub: &Submenu) {
-    while sub.remove_at(0).is_some() {}
 }
 
 fn populate(sub: &Submenu, recents: &[RecentEntry]) {
@@ -130,9 +125,6 @@ pub fn build_app_menu(recents: &[RecentEntry]) -> Menu {
     let _ = file_menu.append(&PredefinedMenuItem::quit(None));
     let _ = menu.append(&file_menu);
 
-    // Store for later rebuilds.
-    RECENTS_SUBMENU.with(|cell| *cell.borrow_mut() = Some(recents_sub));
-
     // ── Edit ─────────────────────────────────────────────────────────────────
     let edit_menu = Submenu::new("Edit", true);
     let _ = edit_menu.append_items(&[
@@ -190,25 +182,4 @@ pub fn build_app_menu(recents: &[RecentEntry]) -> Menu {
     }
 
     menu
-}
-
-/// Rebuild the "Recent Files" submenu to reflect a changed recents list.
-/// Must be called from the main thread (e.g., from a Dioxus `use_effect`).
-pub fn rebuild_recents_menu(recents: &[RecentEntry]) {
-    RECENTS_SUBMENU.with(|cell| {
-        let borrow = cell.borrow();
-        let Some(sub) = borrow.as_ref() else { return };
-        remove_all_items(sub);
-        let _ = sub.set_enabled(!recents.is_empty());
-        if recents.is_empty() {
-            let _ = sub.append(&MenuItem::with_id(
-                "recents-empty",
-                "No Recent Files",
-                false,
-                None,
-            ));
-        } else {
-            populate(sub, recents);
-        }
-    });
 }
