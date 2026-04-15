@@ -1,5 +1,5 @@
-use c2pa_sample_app::model::manifest::{add_manifest, sign_asset, IngredientEntry, ManifestParams, SignParams, SigningAlg};
-use c2pa_sample_app::model::preferences::{load_preferences, save_preferences, Preferences};
+use c2pa_model::manifest::{add_manifest, sign_asset, IngredientEntry, ManifestParams, SignParams, SigningAlg};
+use c2pa_model::preferences::{load_preferences, save_preferences, Preferences};
 use dioxus::prelude::*;
 use serde_json::{json, Value};
 use tracing::{debug, info};
@@ -403,7 +403,7 @@ pub fn SignPage() -> Element {
                     button {
                         class: "btn btn-sm",
                         onclick: move |_| {
-                            info!(target: "c2pa_tool::ui::sign", "Browse dialog opened for source asset");
+                            info!(target: "c2pa_sample_app::ui::sign", "Browse dialog opened for source asset");
                             spawn(async move {
                                 if let Some(h) = rfd::AsyncFileDialog::new()
                                     .add_filter("Assets", &["jpg","jpeg","png","mp4","mov","pdf","tiff","webp"])
@@ -411,13 +411,13 @@ pub fn SignPage() -> Element {
                                     .pick_file().await
                                 {
                                     let path = h.path().to_string_lossy().to_string();
-                                    debug!(target: "c2pa_tool::ui::sign", "Source asset selected: {path}");
+                                    debug!(target: "c2pa_sample_app::ui::sign", "Source asset selected: {path}");
                                     signed_dest.set(derive_signed_dest(&path));
                                     manifest_dest.set(derive_manifest_dest(&path));
                                     file.set(Some(path));
                                     sign_result.set(SignResult::Idle);
                                 } else {
-                                    debug!(target: "c2pa_tool::ui::sign", "Browse dialog cancelled");
+                                    debug!(target: "c2pa_sample_app::ui::sign", "Browse dialog cancelled");
                                 }
                             });
                         },

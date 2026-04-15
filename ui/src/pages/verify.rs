@@ -1,7 +1,7 @@
-use c2pa_sample_app::model::manifest::{
+use c2pa_model::manifest::{
     verify_embedded_manifest, ManifestSummary, VerifyResult, VerifyValidationState,
 };
-use c2pa_sample_app::model::recents::{push_recent, RecentEntry};
+use c2pa_model::recents::{push_recent, RecentEntry};
 use crate::menu::rebuild_recents_menu;
 use dioxus::prelude::*;
 use serde_json::Value;
@@ -77,6 +77,25 @@ fn push_section(rows: &mut Vec<Row>, sections: &mut SectionSet, id: impl Into<St
     rows.push(Row { id, label: label.into(), depth, is_section: true, value: None, ingredient_link: None });
 }
 
+/// Tree label for one JSON array element. C2PA `actions` entries are objects with an
+/// `action` key (e.g. `c2pa.opened`); show that instead of `[0]`, `[1]`, … when present.
+fn array_item_label(element: &Value, index: usize) -> String {
+    match element {
+        Value::Object(map) => {
+            if let Some(v) = map.get("action") {
+                match v {
+                    Value::String(s) => s.clone(),
+                    Value::Null => format!("[{index}]"),
+                    other => other.to_string(),
+                }
+            } else {
+                format!("[{index}]")
+            }
+        }
+        _ => format!("[{index}]"),
+    }
+}
+
 /// Recursively adds rows for a JSON value.
 /// Objects and arrays become expandable sections; scalars become leaves.
 fn build_json_rows(
@@ -97,7 +116,8 @@ fn build_json_rows(
         Value::Array(arr) => {
             push_section(rows, sections, id, format!("{label} [{}]", arr.len()), depth);
             for (i, child) in arr.iter().enumerate() {
-                build_json_rows(rows, sections, child, &format!("{id}/{i}"), &format!("[{i}]"), depth + 1);
+                let item_label = array_item_label(child, i);
+                build_json_rows(rows, sections, child, &format!("{id}/{i}"), &item_label, depth + 1);
             }
         }
         Value::String(s)  => push_leaf(rows, id, label, depth, s.as_str()),
@@ -222,10 +242,10 @@ pub fn VerifyPage() -> Element {
     // Verify a file path and update all relevant state.
     // Also rebuilds the native "Recent Files" menu after updating recents.
     let mut open_file = move |path: String| {
-        info!(target: "c2pa_tool::ui::verify", "Opening file for verification: {path}");
+        info!(target: "c2pa_sample_app::ui::verify", "Opening file for verification: {path}");
         file.set(Some(path.clone()));
         let verify_result = verify_embedded_manifest(&path);
-        debug!(target: "c2pa_tool::ui::verify", "Verification complete, state: {:?}", verify_result.state);
+        debug!(target: "c2pa_sample_app::ui::verify", "Verification complete, state: {:?}", verify_result.state);
         push_recent(&path, &mut recents.write());
         rebuild_recents_menu(&recents.peek());
         expanded.set(default_expanded());
@@ -256,13 +276,13 @@ pub fn VerifyPage() -> Element {
                     button {
                         class: "btn btn-sm",
                         onclick: move |_| {
-                            info!(target: "c2pa_tool::ui::verify", "Browse dialog opened");
+                            info!(target: "c2pa_sample_app::ui::verify", "Browse dialog opened");
                             spawn(async move {
                                 if let Some(handle) = rfd::AsyncFileDialog::new().pick_file().await {
                                     let path_str = handle.path().to_string_lossy().to_string();
                                     open_file(path_str);
                                 } else {
-                                    debug!(target: "c2pa_tool::ui::verify", "Browse dialog cancelled");
+                                    debug!(target: "c2pa_sample_app::ui::verify", "Browse dialog cancelled");
                                 }
                             });
                         },

@@ -180,10 +180,10 @@ fn summarize_manifest(m: &Manifest) -> ManifestSummary {
 ///
 /// This function never panics; all errors are captured in the result.
 pub fn verify_embedded_manifest(path: &str) -> VerifyResult {
-    info!(target: "c2pa_tool::verify", "Verifying: {path}");
+    info!(target: "c2pa_model::verify", "Verifying: {path}");
     match Reader::from_file(path) {
         Err(Error::JumbfNotFound) => {
-            info!(target: "c2pa_tool::verify", "No C2PA manifest found in {path}");
+            info!(target: "c2pa_model::verify", "No C2PA manifest found in {path}");
             VerifyResult {
                 file_path: path.to_string(),
                 state: VerifyValidationState::NoManifest,
@@ -193,7 +193,7 @@ pub fn verify_embedded_manifest(path: &str) -> VerifyResult {
             }
         }
         Err(e) => {
-            error!(target: "c2pa_tool::verify", "Failed to read manifest: {e}");
+            error!(target: "c2pa_model::verify", "Failed to read manifest: {e}");
             VerifyResult {
                 file_path: path.to_string(),
                 state: VerifyValidationState::Invalid,
@@ -204,13 +204,13 @@ pub fn verify_embedded_manifest(path: &str) -> VerifyResult {
         }
         Ok(reader) => {
             let state = match reader.validation_state() {
-                ValidationState::Trusted => { info!(target: "c2pa_tool::verify", "Validation: TRUSTED"); VerifyValidationState::Trusted }
-                ValidationState::Valid   => { info!(target: "c2pa_tool::verify", "Validation: VALID");   VerifyValidationState::Valid }
-                ValidationState::Invalid => { warn!(target: "c2pa_tool::verify", "Validation: INVALID"); VerifyValidationState::Invalid }
+                ValidationState::Trusted => { info!(target: "c2pa_model::verify", "Validation: TRUSTED"); VerifyValidationState::Trusted }
+                ValidationState::Valid   => { info!(target: "c2pa_model::verify", "Validation: VALID");   VerifyValidationState::Valid }
+                ValidationState::Invalid => { warn!(target: "c2pa_model::verify", "Validation: INVALID"); VerifyValidationState::Invalid }
             };
             let manifest = reader.active_manifest().map(summarize_manifest);
             if let Some(m) = &manifest {
-                debug!(target: "c2pa_tool::verify", "Active manifest: {} ({} assertions, {} ingredients)",
+                debug!(target: "c2pa_model::verify", "Active manifest: {} ({} assertions, {} ingredients)",
                     m.label, m.assertions.len(), m.ingredients.len());
             }
             let active_label = manifest.as_ref().map(|m| m.label.clone());
@@ -351,14 +351,14 @@ fn build_builder(p: &ManifestParams) -> Result<Builder, String> {
 /// Returns an error string if the builder cannot be constructed, the
 /// output file cannot be created, or the archive serialisation fails.
 pub fn add_manifest(params: ManifestParams, dest: String) -> Result<String, String> {
-    info!(target: "c2pa_tool::sign", "Exporting manifest archive: {dest}");
-    debug!(target: "c2pa_tool::sign", "Source: {}, assertions: {}", params.source, params.assertions.len());
+    info!(target: "c2pa_model::sign", "Exporting manifest archive: {dest}");
+    debug!(target: "c2pa_model::sign", "Source: {}, assertions: {}", params.source, params.assertions.len());
     let mut builder = build_builder(&params)?;
     let mut file = std::fs::File::create(&dest)
         .map_err(|e| format!("Cannot create file '{dest}': {e}"))?;
     builder.to_archive(&mut file)
-        .map_err(|e| { error!(target: "c2pa_tool::sign", "Archive failed: {e}"); format!("Failed to write manifest archive: {e}") })?;
-    info!(target: "c2pa_tool::sign", "Manifest archive written: {dest}");
+        .map_err(|e| { error!(target: "c2pa_model::sign", "Archive failed: {e}"); format!("Failed to write manifest archive: {e}") })?;
+    info!(target: "c2pa_model::sign", "Manifest archive written: {dest}");
     Ok(dest)
 }
 
@@ -372,20 +372,20 @@ pub fn add_manifest(params: ManifestParams, dest: String) -> Result<String, Stri
 /// cannot be initialised from the provided certificate/key files, or the
 /// signing operation itself fails.
 pub fn sign_asset(params: SignParams) -> Result<String, String> {
-    info!(target: "c2pa_tool::sign", "Signing asset: {} → {}", params.manifest.source, params.dest);
-    debug!(target: "c2pa_tool::sign", "Algorithm: {:?}, assertions: {}, ingredients: {}",
+    info!(target: "c2pa_model::sign", "Signing asset: {} → {}", params.manifest.source, params.dest);
+    debug!(target: "c2pa_model::sign", "Algorithm: {:?}, assertions: {}, ingredients: {}",
         params.alg, params.manifest.assertions.len(), params.manifest.ingredients.len());
     let mut builder = build_builder(&params.manifest)?;
 
     let signer = c2pa::create_signer::from_files(
         &params.cert_path, &params.key_path, params.alg, None,
-    ).map_err(|e| { error!(target: "c2pa_tool::sign", "Signer load failed: {e}"); format!("Failed to load signer: {e}") })?;
+    ).map_err(|e| { error!(target: "c2pa_model::sign", "Signer load failed: {e}"); format!("Failed to load signer: {e}") })?;
 
-    info!(target: "c2pa_tool::sign", "Signer loaded, embedding manifest…");
+    info!(target: "c2pa_model::sign", "Signer loaded, embedding manifest…");
     builder
         .sign_file(signer.as_ref(), &params.manifest.source, &params.dest)
-        .map_err(|e| { error!(target: "c2pa_tool::sign", "Sign failed: {e}"); format!("Signing failed: {e}") })?;
+        .map_err(|e| { error!(target: "c2pa_model::sign", "Sign failed: {e}"); format!("Signing failed: {e}") })?;
 
-    info!(target: "c2pa_tool::sign", "Signed asset written: {}", params.dest);
+    info!(target: "c2pa_model::sign", "Signed asset written: {}", params.dest);
     Ok(params.dest)
 }

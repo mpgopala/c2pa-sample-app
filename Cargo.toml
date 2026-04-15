@@ -1,19 +1,4 @@
 [workspace]
-members = ["ui/dioxus", "ui/tauri/src-tauri"]
-default-members = ["ui/dioxus"]
+members = ["ui", "model"]
+default-members = ["ui"]
 resolver = "2"
-
-[package]
-name = "c2pa-sample-app"
-version = "0.1.0"
-edition = "2024"
-
-[lib]
-name = "c2pa_sample_app"
-
-[dependencies]
-c2pa = { version = "0.78.6", features = ["file_io"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-base64 = "0.22"
-tracing = "0.1"
