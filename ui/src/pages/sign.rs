@@ -1,5 +1,5 @@
-use c2pa_model::manifest::{add_manifest, sign_asset, IngredientEntry, ManifestParams, SignParams, SigningAlg};
-use c2pa_model::preferences::{load_preferences, save_preferences, Preferences};
+use model::manifest::{add_manifest, sign_asset, IngredientEntry, ManifestParams, SignParams, SigningAlg};
+use model::preferences::{load_preferences, save_preferences, Preferences};
 use dioxus::prelude::*;
 use serde_json::{json, Value};
 use tracing::{debug, info};

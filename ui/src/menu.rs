@@ -1,5 +1,9 @@
-use c2pa_model::recents::RecentEntry;
+use model::recents::RecentEntry;
 use crate::logger::LogLevel;
+#[cfg(target_os = "macos")]
+use crate::app_name::APP_DISPLAY_NAME;
+#[cfg(target_os = "macos")]
+use muda::AboutMetadata;
 use muda::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -77,6 +81,32 @@ fn populate(sub: &Submenu, recents: &[RecentEntry]) {
 pub fn build_app_menu(recents: &[RecentEntry]) -> Menu {
     let menu = Menu::new();
 
+    // ── Application (macOS) ───────────────────────────────────────────────────
+    // First submenu title is the name shown in the menu bar (not the binary name `ui`).
+    #[cfg(target_os = "macos")]
+    {
+        // Explicit labels: muda’s defaults use NSRunningApplication.localizedName (“ui” for cargo run).
+        let about_lbl = format!("About {}", APP_DISPLAY_NAME);
+        let hide_lbl = format!("Hide {}", APP_DISPLAY_NAME);
+        let quit_lbl = format!("Quit {}", APP_DISPLAY_NAME);
+
+        let app_menu = Submenu::new(APP_DISPLAY_NAME, true);
+        let about_meta = AboutMetadata {
+            name: Some(APP_DISPLAY_NAME.to_string()),
+            ..Default::default()
+        };
+        let _ = app_menu.append(&PredefinedMenuItem::about(Some(&about_lbl), Some(about_meta)));
+        let _ = app_menu.append(&PredefinedMenuItem::separator());
+        let _ = app_menu.append(&PredefinedMenuItem::services(None));
+        let _ = app_menu.append(&PredefinedMenuItem::separator());
+        let _ = app_menu.append(&PredefinedMenuItem::hide(Some(&hide_lbl)));
+        let _ = app_menu.append(&PredefinedMenuItem::hide_others(None));
+        let _ = app_menu.append(&PredefinedMenuItem::show_all(None));
+        let _ = app_menu.append(&PredefinedMenuItem::separator());
+        let _ = app_menu.append(&PredefinedMenuItem::quit(Some(&quit_lbl)));
+        let _ = menu.prepend(&app_menu);
+    }
+
     // ── File ─────────────────────────────────────────────────────────────────
     let file_menu = Submenu::new("File", true);
     let _ = file_menu.append(&MenuItem::with_id("file-open", "Open…", true, None));
@@ -96,6 +126,7 @@ pub fn build_app_menu(recents: &[RecentEntry]) -> Menu {
     let _ = file_menu.append(&recents_sub);
 
     let _ = file_menu.append(&PredefinedMenuItem::separator());
+    #[cfg(not(target_os = "macos"))]
     let _ = file_menu.append(&PredefinedMenuItem::quit(None));
     let _ = menu.append(&file_menu);
 

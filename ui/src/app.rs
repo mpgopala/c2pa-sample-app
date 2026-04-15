@@ -1,4 +1,4 @@
-use c2pa_model::recents::{load_recents, RecentEntry};
+use model::recents::{load_recents, RecentEntry};
 use dioxus::desktop::use_muda_event_handler;
 use dioxus::document::eval;
 use dioxus::prelude::*;
@@ -6,6 +6,7 @@ use crate::logger::{drain_logs, set_log_level, LogEntry, LogLevel};
 use crate::menu::{log_level_for_id, path_for_id, set_active_log_level, set_log_pane_checked, MENU_TOGGLE_LOG};
 use tracing::info;
 use crate::pages::{settings::SettingsPage, sign::SignPage, verify::VerifyPage};
+use crate::app_name::APP_DISPLAY_NAME;
 
 #[derive(Clone, PartialEq)]
 pub enum Page {
@@ -93,7 +94,7 @@ pub fn App() -> Element {
             }
 
             nav { class: "nav",
-                span { class: "nav-brand", "c2pa-sample-app" }
+                span { class: "nav-brand", { APP_DISPLAY_NAME } }
                 button {
                     class: if *page.read() == Page::Sign { "nav-tab active" } else { "nav-tab" },
                     onclick: move |_| {

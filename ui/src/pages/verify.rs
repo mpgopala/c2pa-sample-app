@@ -1,12 +1,325 @@
-use c2pa_model::manifest::{
-    verify_embedded_manifest, ManifestSummary, VerifyResult, VerifyValidationState,
+use c2pa::assertions::labels;
+use model::manifest::{
+    verify_embedded_manifest, IngredientSummary, ManifestSummary, VerifyResult,
+    VerifyValidationState,
 };
-use c2pa_model::recents::{push_recent, RecentEntry};
+use model::recents::{push_recent, RecentEntry};
 use crate::menu::rebuild_recents_menu;
 use dioxus::prelude::*;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
+
+// ── manifest store relationship diagram (recursive tree) ───────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ManifestNodeSeverity {
+    Ok,
+    Warn,
+    Error,
+}
+
+fn manifest_label_map(result: &VerifyResult) -> HashMap<String, ManifestSummary> {
+    let mut map = HashMap::new();
+    if let Some(m) = &result.manifest {
+        map.insert(m.label.clone(), m.clone());
+    }
+    for m in &result.all_manifests {
+        map.insert(m.label.clone(), m.clone());
+    }
+    map
+}
+
+fn relationship_sort_key(rel: &str) -> u8 {
+    match rel {
+        "parentOf" => 0,
+        "componentOf" => 1,
+        "inputTo" => 2,
+        _ => 3,
+    }
+}
+
+/// Tree section id in the Manifest Store panel for a manifest (`root/active` or `root/other/{i}`).
+fn manifest_tree_section_id(label: &str, result: &VerifyResult) -> Option<String> {
+    if result.manifest.as_ref().is_some_and(|m| m.label == label) {
+        return Some("root/active".to_string());
+    }
+    for (idx, m) in result.all_manifests.iter().enumerate() {
+        if m.label == label {
+            return Some(format!("root/other/{idx}"));
+        }
+    }
+    None
+}
+
+/// Recursive manifest tree: ingredients whose `active_manifest` resolves to another claim
+/// in this asset become embedded child nodes. Ingredients **without** a resolvable embedded
+/// manifest (e.g. `componentOf` file-only references like I.jpg) still appear as
+/// **ingredient-only** stubs. **`parentOf` ingredients are omitted** (provenance parent, not a child).
+#[derive(Clone, PartialEq)]
+struct ManifestRelNode {
+    summary: ManifestSummary,
+    children: Vec<ManifestRelChild>,
+}
+
+#[derive(Clone, PartialEq)]
+enum ManifestRelChild {
+    Embedded(ManifestRelNode),
+    IngredientOnly(IngredientSummary),
+}
+
+fn build_manifest_rel_tree(
+    m: &ManifestSummary,
+    map: &HashMap<String, ManifestSummary>,
+    path: &mut HashSet<String>,
+) -> ManifestRelNode {
+    path.insert(m.label.clone());
+    let mut items: Vec<(u8, String, ManifestRelChild)> = Vec::new();
+
+    for ing in &m.ingredients {
+        if ing.relationship == "parentOf" {
+            continue;
+        }
+        let rk = relationship_sort_key(&ing.relationship);
+        if let Some(l) = ing.active_manifest.as_ref() {
+            if !path.contains(l) {
+                if let Some(child_sum) = map.get(l) {
+                    let sub = build_manifest_rel_tree(child_sum, map, path);
+                    items.push((
+                        rk,
+                        l.clone(),
+                        ManifestRelChild::Embedded(sub),
+                    ));
+                    continue;
+                }
+            }
+        }
+        // No embedded manifest in this asset’s store (or unresolved label): show ingredient stub.
+        items.push((
+            rk,
+            ing.instance_id.clone(),
+            ManifestRelChild::IngredientOnly(ing.clone()),
+        ));
+    }
+
+    items.sort_by(|a, b| {
+        a.0.cmp(&b.0).then_with(|| match (&a.2, &b.2) {
+            (ManifestRelChild::Embedded(x), ManifestRelChild::Embedded(y)) => {
+                x.summary.label.cmp(&y.summary.label)
+            }
+            (ManifestRelChild::IngredientOnly(x), ManifestRelChild::IngredientOnly(y)) => {
+                x.instance_id.cmp(&y.instance_id)
+            }
+            (ManifestRelChild::Embedded(_), ManifestRelChild::IngredientOnly(_)) => {
+                std::cmp::Ordering::Less
+            }
+            (ManifestRelChild::IngredientOnly(_), ManifestRelChild::Embedded(_)) => {
+                std::cmp::Ordering::Greater
+            }
+        })
+    });
+
+    let mut seen: HashSet<String> = HashSet::new();
+    items.retain(|(_, key, _)| seen.insert(key.clone()));
+
+    let children: Vec<ManifestRelChild> = items.into_iter().map(|(_, _, c)| c).collect();
+    path.remove(&m.label);
+    ManifestRelNode {
+        summary: m.clone(),
+        children,
+    }
+}
+
+fn manifest_node_severity(m: &ManifestSummary, result: &VerifyResult, is_active: bool) -> ManifestNodeSeverity {
+    if is_active {
+        return match result.state {
+            VerifyValidationState::Trusted => ManifestNodeSeverity::Ok,
+            VerifyValidationState::Valid => ManifestNodeSeverity::Warn,
+            VerifyValidationState::Invalid | VerifyValidationState::NoManifest => ManifestNodeSeverity::Error,
+        };
+    }
+    let mut worst = ManifestNodeSeverity::Ok;
+    let label = m.label.as_str();
+    let iid = m.instance_id.as_str();
+    for v in &result.validation_statuses {
+        let blob = v.to_string();
+        if !blob.contains(label) && !blob.contains(iid) {
+            continue;
+        }
+        if let Some(code) = v.get("code").and_then(|c| c.as_str()) {
+            if code.contains("failure")
+                || (code.contains("invalid") && !code.contains("insideValidity"))
+                || code.contains("mismatch")
+            {
+                worst = ManifestNodeSeverity::Error;
+            } else if code.contains("untrusted")
+                || code.contains("outsideValidity")
+                || code.contains("ocsp")
+            {
+                worst = worst.max(ManifestNodeSeverity::Warn);
+            }
+        }
+    }
+    worst
+}
+
+#[component]
+fn ManifestDiagramNode(
+    title: String,
+    subtitle: String,
+    thumb: Option<String>,
+    severity: ManifestNodeSeverity,
+    is_active: bool,
+    is_selected: bool,
+) -> Element {
+    let node_class = if is_selected {
+        "mstore-node mstore-node-active"
+    } else {
+        "mstore-node mstore-node-secondary"
+    };
+    let badge_class = match severity {
+        ManifestNodeSeverity::Ok => "mstore-badge mstore-badge-ok",
+        ManifestNodeSeverity::Warn => "mstore-badge mstore-badge-warn",
+        ManifestNodeSeverity::Error => "mstore-badge mstore-badge-error",
+    };
+    let icon = match severity {
+        ManifestNodeSeverity::Ok => "✓",
+        ManifestNodeSeverity::Warn => "!",
+        ManifestNodeSeverity::Error => "!",
+    };
+    rsx! {
+        div { class: "{node_class}",
+            div { class: "{badge_class}", "{icon}" }
+            if let Some(uri) = thumb {
+                img { class: "mstore-thumb", src: "{uri}", alt: "" }
+            } else {
+                div { class: "mstore-thumb-placeholder", "No thumbnail" }
+            }
+            div { class: "mstore-title", "{title}" }
+            div { class: "mstore-sub", "{subtitle}" }
+        }
+    }
+}
+
+#[component]
+fn ManifestRelSubtree(
+    node: ManifestRelNode,
+    result: VerifyResult,
+    active_label: String,
+    expanded: Signal<HashSet<String>>,
+    highlighted: Signal<Option<String>>,
+) -> Element {
+    let m = node.summary.clone();
+    let label = m.label.clone();
+    let title = m.title.clone().unwrap_or_else(|| m.label.clone());
+    let subtitle = m.label.clone();
+    let is_active_asset = label == active_label;
+    let sev = manifest_node_severity(&m, &result, is_active_asset);
+    let thumb = m.thumbnail_data_uri.clone();
+    let tree_id = manifest_tree_section_id(&label, &result);
+    let highlight_for_click = tree_id.clone();
+    let active_tid = manifest_tree_section_id(&active_label, &result);
+
+    rsx! {
+        div { class: "mrel-subtree",
+            div {
+                class: "mrel-node-click",
+                onclick: move |_| {
+                    if let Some(ref id) = highlight_for_click {
+                        let mut exp = expanded.write();
+                        exp.insert("root".to_string());
+                        for anc in ancestor_ids(id) {
+                            exp.insert(anc);
+                        }
+                        exp.insert(id.clone());
+                        highlighted.set(Some(id.clone()));
+                    }
+                },
+                ManifestDiagramNode {
+                    title: title,
+                    subtitle: subtitle,
+                    thumb: thumb,
+                    severity: sev,
+                    is_active: is_active_asset,
+                    is_selected: diagram_manifest_is_selected(&tree_id, &active_tid, &highlighted.read().clone()),
+                }
+            }
+            if !node.children.is_empty() {
+                div { class: "mrel-connector-down" }
+                div { class: "mrel-children-row",
+                    for (ci, ch) in node.children.iter().enumerate() {
+                        {
+                            let parent_label = node.summary.label.clone();
+                            match ch {
+                                ManifestRelChild::Embedded(n) => {
+                                    let n = n.clone();
+                                    let clabel = n.summary.label.clone();
+                                    rsx! {
+                                        div { class: "mrel-child-column", key: "emb-{clabel}-{ci}",
+                                            ManifestRelSubtree {
+                                                node: n,
+                                                result: result.clone(),
+                                                active_label: active_label.clone(),
+                                                expanded: expanded,
+                                                highlighted: highlighted,
+                                            }
+                                        }
+                                    }
+                                }
+                                ManifestRelChild::IngredientOnly(ing) => {
+                                    let ing = ing.clone();
+                                    let iid = ing.instance_id.clone();
+                                    rsx! {
+                                        div { class: "mrel-child-column", key: "ing-{iid}-{ci}",
+                                            IngredientStubDiagram {
+                                                ing: ing,
+                                                parent_manifest_label: parent_label.clone(),
+                                                result: result.clone(),
+                                                active_label: active_label.clone(),
+                                                expanded: expanded,
+                                                highlighted: highlighted,
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ManifestRelationshipDiagram(
+    result: VerifyResult,
+    expanded: Signal<HashSet<String>>,
+    highlighted: Signal<Option<String>>,
+) -> Element {
+    let Some(root) = result.manifest.clone() else {
+        return rsx! {};
+    };
+    let map = manifest_label_map(&result);
+    let mut path = HashSet::new();
+    let tree = build_manifest_rel_tree(&root, &map, &mut path);
+    let active_label = root.label.clone();
+
+    rsx! {
+        div { class: "card mrel-card",
+            div { class: "card-title", "Manifest relationships" }
+            div { class: "mrel-root",
+                ManifestRelSubtree {
+                    node: tree,
+                    result: result.clone(),
+                    active_label: active_label.clone(),
+                    expanded: expanded,
+                    highlighted: highlighted,
+                }
+            }
+        }
+    }
+}
 
 // ── flat tree data model ─────────────────────────────────────────────────────
 
@@ -28,8 +341,8 @@ struct Row {
 /// IDs of all section rows (needed to decide visibility).
 type SectionSet = HashSet<String>;
 
-/// Extract the ingredient assertion label from a JUMBF ingredient URI.
-/// e.g. "self#jumbf=c2pa.assertions/c2pa.ingredient.v3" → "c2pa.ingredient.v3"
+/// Extract the ingredient assertion path segment from a JUMBF URI (includes `__n` instance).
+/// e.g. `.../c2pa.ingredient.v3__1` → `c2pa.ingredient.v3__1`
 fn extract_ingredient_label(value: &str) -> Option<&str> {
     let prefix = "self#jumbf=c2pa.assertions/";
     value
@@ -37,24 +350,121 @@ fn extract_ingredient_label(value: &str) -> Option<&str> {
         .filter(|s| s.starts_with("c2pa.ingredient"))
 }
 
-/// Return the tree row ID for the ingredient whose assertion label matches
-/// `label`, searching the active manifest first then the others.
-fn find_ingredient_row_id(result: &VerifyResult, label: &str) -> Option<String> {
-    if let Some(m) = &result.manifest {
-        for ing in &m.ingredients {
-            if ing.label.as_deref() == Some(label) {
-                return Some(format!("root/active/ingredients/{}", ing.instance_id));
-            }
-        }
+/// `root/active` or `root/other/{idx}` for any tree row under that manifest’s subtree.
+fn manifest_prefix_from_tree_row_id(row_id: &str) -> Option<String> {
+    if row_id == "root/active" || row_id.starts_with("root/active/") {
+        return Some("root/active".to_string());
     }
-    for (idx, m) in result.all_manifests.iter().enumerate() {
-        for ing in &m.ingredients {
-            if ing.label.as_deref() == Some(label) {
-                return Some(format!("root/other/{idx}/ingredients/{}", ing.instance_id));
-            }
+    let parts: Vec<&str> = row_id.split('/').collect();
+    if parts.len() >= 3 && parts[0] == "root" && parts[1] == "other" && parts[2].chars().all(|c| c.is_ascii_digit()) {
+        return Some(format!("root/other/{}", parts[2]));
+    }
+    None
+}
+
+fn manifest_for_prefix<'a>(result: &'a VerifyResult, prefix: &str) -> Option<&'a ManifestSummary> {
+    match prefix {
+        "root/active" => result.manifest.as_ref(),
+        p if p.starts_with("root/other/") => p
+            .strip_prefix("root/other/")
+            .and_then(|s| s.parse::<usize>().ok())
+            .and_then(|i| result.all_manifests.get(i)),
+        _ => None,
+    }
+}
+
+/// True if `uri_suffix` (from JUMBF URI) and `stored` (ingredient assertion label) denote the same assertion.
+fn ingredient_assertion_labels_match(uri_suffix: &str, stored: &str) -> bool {
+    if uri_suffix.is_empty() || stored.is_empty() {
+        return false;
+    }
+    if uri_suffix == stored {
+        return true;
+    }
+    labels::base(uri_suffix) == labels::base(stored)
+        && labels::version(uri_suffix) == labels::version(stored)
+        && labels::instance(uri_suffix) == labels::instance(stored)
+}
+
+/// Resolve an ingredient JUMBF label to a row id **only within the manifest** that contains `source_row_id`.
+fn find_ingredient_row_id(result: &VerifyResult, uri_suffix: &str, source_row_id: &str) -> Option<String> {
+    let prefix = manifest_prefix_from_tree_row_id(source_row_id)?;
+    let m = manifest_for_prefix(result, &prefix)?;
+    for ing in &m.ingredients {
+        let stored = ing.label.as_deref().unwrap_or("");
+        if ingredient_assertion_labels_match(uri_suffix, stored) {
+            return Some(format!("{prefix}/ingredients/{}", ing.instance_id));
         }
     }
     None
+}
+
+/// Diagram selection: default (`None`) highlights the active manifest only; any explicit selection replaces it.
+fn diagram_manifest_is_selected(
+    tree_id: &Option<String>,
+    active_tree_id: &Option<String>,
+    highlighted: &Option<String>,
+) -> bool {
+    match highlighted {
+        None => tree_id == active_tree_id,
+        Some(h) => tree_id.as_deref() == Some(h.as_str()),
+    }
+}
+
+/// Tree row id for an ingredient under a manifest (`…/ingredients/{instance_id}`).
+fn ingredient_stub_tree_id(
+    parent_manifest_label: &str,
+    ing: &IngredientSummary,
+    result: &VerifyResult,
+) -> Option<String> {
+    let prefix = manifest_tree_section_id(parent_manifest_label, result)?;
+    Some(format!("{prefix}/ingredients/{}", ing.instance_id))
+}
+
+#[component]
+fn IngredientStubDiagram(
+    ing: IngredientSummary,
+    parent_manifest_label: String,
+    result: VerifyResult,
+    active_label: String,
+    expanded: Signal<HashSet<String>>,
+    highlighted: Signal<Option<String>>,
+) -> Element {
+    let title = ing
+        .title
+        .clone()
+        .unwrap_or_else(|| "(ingredient)".to_string());
+    let subtitle = format!("{} · {}", ing.relationship, ing.instance_id);
+    let tree_id = ingredient_stub_tree_id(&parent_manifest_label, &ing, &result);
+    let click_id = tree_id.clone();
+    let active_tid = manifest_tree_section_id(&active_label, &result);
+
+    rsx! {
+        div { class: "mrel-subtree mrel-ingredient-stub",
+            div {
+                class: "mrel-node-click",
+                onclick: move |_| {
+                    if let Some(ref id) = click_id {
+                        let mut exp = expanded.write();
+                        exp.insert("root".to_string());
+                        for anc in ancestor_ids(id) {
+                            exp.insert(anc);
+                        }
+                        exp.insert(id.clone());
+                        highlighted.set(Some(id.clone()));
+                    }
+                },
+                ManifestDiagramNode {
+                    title: title,
+                    subtitle: subtitle,
+                    thumb: None,
+                    severity: ManifestNodeSeverity::Ok,
+                    is_active: false,
+                    is_selected: diagram_manifest_is_selected(&tree_id, &active_tid, &highlighted.read().clone()),
+                }
+            }
+        }
+    }
 }
 
 /// Return all proper ancestor IDs for a slash-separated row ID.
@@ -140,19 +550,66 @@ fn build_manifest_rows(
     if let Some(f) = &m.format {
         push_leaf(rows, format!("{prefix}/format"), "format", depth, f);
     }
+    if let Some(cv) = m.claim_version {
+        push_leaf(
+            rows,
+            format!("{prefix}/claim_version"),
+            "claim_version",
+            depth,
+            cv.to_string(),
+        );
+    }
     if let Some(cg) = &m.claim_generator {
         push_leaf(rows, format!("{prefix}/claim_generator"), "claim_generator", depth, cg);
     }
+    if let Some(cgi) = &m.claim_generator_info {
+        let cgi_id = format!("{prefix}/claim_generator_info");
+        push_section(rows, sections, &cgi_id, format!("claim_generator_info [{}]", cgi.len()), depth);
+        for (i, item) in cgi.iter().enumerate() {
+            let item_label = array_item_label(item, i);
+            build_json_rows(rows, sections, item, &format!("{cgi_id}/{i}"), &item_label, depth + 1);
+        }
+    }
     push_leaf(rows, format!("{prefix}/instance_id"), "instance_id", depth, &m.instance_id);
 
-    if m.issuer.is_some() || m.signing_time.is_some() {
-        let sig = format!("{prefix}/signature");
-        push_section(rows, sections, &sig, "signature", depth);
+    if m.issuer.is_some()
+        || m.common_name.is_some()
+        || m.cert_serial_number.is_some()
+        || m.signing_time.is_some()
+        || m.signature_alg.is_some()
+        || m.revocation_status.is_some()
+    {
+        let sig = format!("{prefix}/signature_info");
+        push_section(rows, sections, &sig, "signature_info {…}", depth);
         if let Some(iss) = &m.issuer {
             push_leaf(rows, format!("{sig}/issuer"), "issuer", depth + 1, iss);
         }
+        if let Some(cn) = &m.common_name {
+            push_leaf(rows, format!("{sig}/common_name"), "common_name", depth + 1, cn);
+        }
+        if let Some(sn) = &m.cert_serial_number {
+            push_leaf(
+                rows,
+                format!("{sig}/cert_serial_number"),
+                "cert_serial_number",
+                depth + 1,
+                sn,
+            );
+        }
         if let Some(ts) = &m.signing_time {
             push_leaf(rows, format!("{sig}/time"), "time", depth + 1, ts);
+        }
+        if let Some(alg) = &m.signature_alg {
+            push_leaf(rows, format!("{sig}/alg"), "alg", depth + 1, alg);
+        }
+        if let Some(rs) = m.revocation_status {
+            push_leaf(
+                rows,
+                format!("{sig}/revocation_status"),
+                "revocation_status",
+                depth + 1,
+                rs.to_string(),
+            );
         }
     }
 
@@ -295,32 +752,38 @@ pub fn VerifyPage() -> Element {
                 }
 
 
-                // ── Thumbnail + Validation summary ────────────────────────
-                if let Some(uri) = result.read().as_ref().and_then(|r| r.manifest.as_ref()).and_then(|m| m.thumbnail_data_uri.clone()) {
-                    div { class: "card",
-                        div { class: "card-title", "Thumbnail" }
-                        img {
-                            src: "{uri}",
-                            style: "max-width: 100%; border-radius: 4px;",
-                            alt: "Asset thumbnail"
-                        }
-                    }
-                }
+                // ── Validation ────────────────────────────────────────────────
                 if let Some(res) = result.read().as_ref() {
                     {
-                        let (badge_class, state_label) = match res.state {
-                            VerifyValidationState::Trusted    => ("status-badge status-verified", "TRUSTED"),
-                            VerifyValidationState::Valid      => ("status-badge status-verified", "VALID"),
-                            VerifyValidationState::Invalid    => ("status-badge status-tampered", "INVALID"),
-                            VerifyValidationState::NoManifest => ("status-badge status-unsigned", "NO MANIFEST"),
+                        let (card_class, summary_class, state_label) = match res.state {
+                            VerifyValidationState::Trusted => (
+                                "card validation-card validation-card-trusted",
+                                "validation-summary validation-summary-trusted",
+                                "TRUSTED",
+                            ),
+                            VerifyValidationState::Valid => (
+                                "card validation-card validation-card-valid",
+                                "validation-summary validation-summary-valid",
+                                "VALID",
+                            ),
+                            VerifyValidationState::Invalid => (
+                                "card validation-card validation-card-error",
+                                "validation-summary validation-summary-error",
+                                "INVALID",
+                            ),
+                            VerifyValidationState::NoManifest => (
+                                "card validation-card validation-card-error",
+                                "validation-summary validation-summary-error",
+                                "NO MANIFEST",
+                            ),
                         };
                         let issuer   = res.manifest.as_ref().and_then(|m| m.issuer.clone());
                         let sig_time = res.manifest.as_ref().and_then(|m| m.signing_time.clone());
                         rsx! {
-                            div { class: "card",
+                            div { class: "{card_class}",
                                 div { class: "card-title", "Validation" }
-                                div { class: "{badge_class}",
-                                    span { class: "status-dot" }
+                                div { class: "{summary_class}",
+                                    span { class: "validation-summary-dot" }
                                     "{state_label}"
                                 }
                                 if let Some(iss) = issuer {
@@ -343,6 +806,15 @@ pub fn VerifyPage() -> Element {
 
             // ── Right panel ─────────────────────────────────────────────────
             div { class: "panel-right",
+                if let Some(res) = result.read().as_ref().cloned() {
+                    if res.manifest.is_some() {
+                        ManifestRelationshipDiagram {
+                            result: res,
+                            expanded: expanded,
+                            highlighted: highlighted,
+                        }
+                    }
+                }
                 div { class: "card",
                     div { class: "card-title", "Manifest Store" }
                     if result.read().is_none() {
@@ -387,7 +859,7 @@ pub fn VerifyPage() -> Element {
                                                         class: "{section_class}",
                                                         style: "padding-left: {indent}px",
                                                         onclick: move |_| {
-                                                            highlighted.set(None);
+                                                            highlighted.set(Some(row_id.clone()));
                                                             let mut exp = expanded.write();
                                                             if exp.contains(&row_id) { exp.remove(&row_id); } else { exp.insert(row_id.clone()); }
                                                         },
@@ -413,7 +885,7 @@ pub fn VerifyPage() -> Element {
                                                                     e.stop_propagation();
                                                                     let res_guard = result.read();
                                                                     if let Some(res) = res_guard.as_ref() {
-                                                                        if let Some(target_id) = find_ingredient_row_id(res, &ing_label) {
+                                                                        if let Some(target_id) = find_ingredient_row_id(res, &ing_label, &row_id) {
                                                                             let mut exp = expanded.write();
                                                                             for anc in ancestor_ids(&target_id) {
                                                                                 exp.insert(anc);
