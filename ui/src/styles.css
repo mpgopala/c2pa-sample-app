@@ -6,21 +6,177 @@
   --verified: #1e8e3e; --tampered: #d93025; --unverifiable: #f29900; --unsigned: #9e9e9e;
   --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,0.12);
 }
+html, body { height: 100%; overflow: hidden; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
-.root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-.content-and-log { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+.root { display: flex; flex-direction: column; height: 100vh; min-height: 0; overflow: hidden; }
+.content-and-log { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; height: 52px; gap: 8px; }
 .nav-brand { font-weight: 600; font-size: 15px; margin-right: 16px; }
 .nav-tab { padding: 6px 16px; border-radius: 6px; border: none; background: transparent; cursor: pointer; font-size: 14px; color: var(--text-secondary); }
 .nav-tab:hover { background: #f0f0f0; color: var(--text); }
 .nav-tab.active { background: #e8f0fe; color: var(--primary); font-weight: 500; }
-.page-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
-.page-tab-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.page-content { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+/* Scroll the active tab when content exceeds the viewport (scrollbars appear as needed). */
+.page-tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
 .page-tab-hidden { display: none !important; }
-.page-title { padding: 20px 24px 0; font-size: 18px; font-weight: 600; }
-.two-panel { display: flex; flex: 1; gap: 16px; padding: 16px 24px 24px; overflow: hidden; }
-.panel-left { width: 280px; flex-shrink: 0; display: flex; flex-direction: column; gap: 12px; }
-.panel-right { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.page-title { flex-shrink: 0; padding: 20px 24px 0; font-size: 18px; font-weight: 600; }
+/* Size to content so the tab panel owns vertical scrolling (avoids clipping). */
+.two-panel {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 24px 24px;
+  min-width: 0;
+  overflow: visible;
+}
+.panel-left {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ── Manifest relationship tree (Verify tab, top of right column) ───────── */
+.mrel-card { flex-shrink: 0; }
+.mrel-root {
+  width: 100%;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+}
+.mrel-subtree {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: min-content;
+}
+.mrel-node-click {
+  cursor: pointer;
+  border-radius: 12px;
+}
+.mrel-node-click:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.mrel-connector-down {
+  width: 2px;
+  height: 16px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+/* Siblings (same parent manifest) share one row; wraps when needed. */
+.mrel-children-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 12px 20px;
+  width: 100%;
+  padding-top: 2px;
+}
+.mrel-child-column {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.mstore-node {
+  position: relative;
+  width: 100%;
+  max-width: 240px;
+  border-radius: 12px;
+  border: 3px solid var(--border);
+  background: var(--surface);
+  padding: 28px 10px 10px;
+  box-shadow: var(--shadow);
+}
+.mstore-node-active {
+  border-color: var(--primary);
+}
+.mstore-node-secondary {
+  border-color: #bdbdbd;
+}
+.mstore-badge {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+}
+.mstore-badge-ok {
+  background: var(--verified);
+  color: #fff;
+}
+.mstore-badge-warn {
+  background: var(--unverifiable);
+  color: #fff;
+}
+.mstore-badge-error {
+  background: var(--tampered);
+  color: #fff;
+}
+.mstore-thumb {
+  display: block;
+  width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #f5f5f5;
+}
+.mstore-thumb-placeholder {
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: #fafafa;
+  border-radius: 6px;
+}
+.mstore-title {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+  word-break: break-word;
+}
+.mstore-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  font-family: ui-monospace, monospace;
+}
+.panel-right {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
 .card-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 .drop-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 32px 16px; text-align: center; color: var(--text-secondary); background: var(--surface); cursor: pointer; }
@@ -47,6 +203,60 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .status-verified .status-dot { background: var(--verified); }
 .meta-row { display: flex; gap: 8px; margin-bottom: 6px; font-size: 13px; }
 .meta-label { color: var(--text-secondary); width: 80px; }
+
+/* Validation pane (left): whole card tint by outcome */
+.validation-card {
+  border-width: 2px;
+}
+.validation-card-trusted {
+  background: #e8f5e9;
+  border-color: #66bb6a;
+}
+.validation-card-valid {
+  background: #fff8e1;
+  border-color: #ffa726;
+}
+.validation-card-error {
+  background: #ffebee;
+  border-color: #ef5350;
+}
+.validation-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.validation-summary-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.validation-summary-trusted {
+  background: rgba(255, 255, 255, 0.55);
+  color: #1b5e20;
+}
+.validation-summary-trusted .validation-summary-dot {
+  background: var(--verified);
+}
+.validation-summary-valid {
+  background: rgba(255, 255, 255, 0.65);
+  color: #e65100;
+}
+.validation-summary-valid .validation-summary-dot {
+  background: var(--unverifiable);
+}
+.validation-summary-error {
+  background: rgba(255, 255, 255, 0.65);
+  color: #b71c1c;
+}
+.validation-summary-error .validation-summary-dot {
+  background: var(--tampered);
+}
 .tree { font-size: 13px; font-family: monospace; overflow-x: auto; }
 .tree-node { padding: 2px 0; }
 .tree-section { cursor: pointer; display: flex; align-items: center; color: var(--text); }
@@ -59,7 +269,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .tree-highlighted { background: #fff8e1; border-left: 3px solid #f9a825; margin-left: -3px; border-radius: 2px; }
 .tree-ing-link { margin-left: 8px; font-size: 11px; color: var(--primary); cursor: pointer; text-decoration: underline; user-select: none; white-space: nowrap; }
 .tree-ing-link:hover { color: var(--primary-hover); }
-.settings-page { padding: 20px 24px; overflow-y: auto; max-width: 640px; display: flex; flex-direction: column; gap: 16px; }
+.settings-page {
+  flex: 0 0 auto;
+  padding: 20px 24px 24px;
+  max-width: 640px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: visible;
+}
 .trust-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
 .settings-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .checkbox-group { display: flex; flex-direction: column; gap: 8px; }
