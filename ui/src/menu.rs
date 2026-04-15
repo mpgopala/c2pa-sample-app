@@ -1,4 +1,4 @@
-use c2pa_sample_app::model::recents::RecentEntry;
+use c2pa_model::recents::RecentEntry;
 use crate::logger::LogLevel;
 use muda::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use std::cell::RefCell;

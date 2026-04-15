@@ -24,14 +24,14 @@ pub fn SettingsPage() -> Element {
                         span { "{t}" }
                         button { class: "btn btn-sm btn-danger", onclick: move |_| {
                             let removed = trust_lists.read().get(i).cloned().unwrap_or_default();
-                            info!(target: "c2pa_tool::ui::settings", "Trust list entry removed: {removed}");
+                            info!(target: "c2pa_sample_app::ui::settings", "Trust list entry removed: {removed}");
                             trust_lists.write().remove(i);
                         }, "Remove" }
                     }
                 }
                 div { class: "add-row",
                     button { class: "btn btn-sm", onclick: move |_| {
-                        info!(target: "c2pa_tool::ui::settings", "Trust list entry added: new-trust.pem");
+                        info!(target: "c2pa_sample_app::ui::settings", "Trust list entry added: new-trust.pem");
                         trust_lists.write().push("new-trust.pem".into());
                     }, "+ Add" }
                 }
@@ -42,7 +42,7 @@ pub fn SettingsPage() -> Element {
                 div { class: "radio-group",
                     label {
                         input { r#type: "radio", checked: *config_mode.read() == ConfigMode::File, onchange: move |_| {
-                            debug!(target: "c2pa_tool::ui::settings", "Config mode set to: File");
+                            debug!(target: "c2pa_sample_app::ui::settings", "Config mode set to: File");
                             config_mode.set(ConfigMode::File);
                         } }
                         " Load from file"
@@ -55,7 +55,7 @@ pub fn SettingsPage() -> Element {
                     }
                     label {
                         input { r#type: "radio", checked: *config_mode.read() == ConfigMode::Json, onchange: move |_| {
-                            debug!(target: "c2pa_tool::ui::settings", "Config mode set to: JSON");
+                            debug!(target: "c2pa_sample_app::ui::settings", "Config mode set to: JSON");
                             config_mode.set(ConfigMode::Json);
                         } }
                         " Load from JSON"
@@ -87,8 +87,8 @@ pub fn SettingsPage() -> Element {
             }
 
             div { class: "settings-actions",
-                button { class: "btn", onclick: move |_| info!(target: "c2pa_tool::ui::settings", "Settings reset to default"), "Reset to Default" }
-                button { class: "btn btn-primary", onclick: move |_| info!(target: "c2pa_tool::ui::settings", "Settings saved"), "Save" }
+                button { class: "btn", onclick: move |_| info!(target: "c2pa_sample_app::ui::settings", "Settings reset to default"), "Reset to Default" }
+                button { class: "btn btn-primary", onclick: move |_| info!(target: "c2pa_sample_app::ui::settings", "Settings saved"), "Save" }
             }
         }
     }

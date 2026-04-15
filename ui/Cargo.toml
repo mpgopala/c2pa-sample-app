@@ -1,11 +1,11 @@
 [package]
 name = "c2pa-dioxus"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 dioxus = { version = "0.6", features = ["desktop"] }
-c2pa-sample-app = { path = "../.." }
+c2pa-model = { path = "../model" }
 rfd = { version = "0.15", features = ["tokio"] }
 serde_json = "1"
 muda = "0.11"

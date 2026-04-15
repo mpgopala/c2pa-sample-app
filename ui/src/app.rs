@@ -1,4 +1,4 @@
-use c2pa_sample_app::model::recents::{load_recents, RecentEntry};
+use c2pa_model::recents::{load_recents, RecentEntry};
 use dioxus::desktop::use_muda_event_handler;
 use dioxus::document::eval;
 use dioxus::prelude::*;
@@ -93,11 +93,11 @@ pub fn App() -> Element {
             }
 
             nav { class: "nav",
-                span { class: "nav-brand", "C2PA Tool" }
+                span { class: "nav-brand", "c2pa-sample-app" }
                 button {
                     class: if *page.read() == Page::Sign { "nav-tab active" } else { "nav-tab" },
                     onclick: move |_| {
-                        info!(target: "c2pa_tool::nav", "Navigated to Sign");
+                        info!(target: "c2pa_sample_app::nav", "Navigated to Sign");
                         page.set(Page::Sign);
                     },
                     "Sign"
@@ -105,7 +105,7 @@ pub fn App() -> Element {
                 button {
                     class: if *page.read() == Page::Verify { "nav-tab active" } else { "nav-tab" },
                     onclick: move |_| {
-                        info!(target: "c2pa_tool::nav", "Navigated to Verify");
+                        info!(target: "c2pa_sample_app::nav", "Navigated to Verify");
                         page.set(Page::Verify);
                     },
                     "Verify"
@@ -113,7 +113,7 @@ pub fn App() -> Element {
                 button {
                     class: if *page.read() == Page::Settings { "nav-tab active" } else { "nav-tab" },
                     onclick: move |_| {
-                        info!(target: "c2pa_tool::nav", "Navigated to Settings");
+                        info!(target: "c2pa_sample_app::nav", "Navigated to Settings");
                         page.set(Page::Settings);
                     },
                     "Settings"
@@ -126,10 +126,18 @@ pub fn App() -> Element {
                 class: if *log_visible.read() { "content-and-log" } else { "content-and-log log-hidden" },
 
                 div { class: "page-content",
-                    match *page.read() {
-                        Page::Sign     => rsx! { SignPage {} },
-                        Page::Verify   => rsx! { VerifyPage {} },
-                        Page::Settings => rsx! { SettingsPage {} },
+                    // Keep all tab panels mounted so local state (e.g. Verify open asset) survives tab switches.
+                    div {
+                        class: if *page.read() == Page::Sign { "page-tab-panel" } else { "page-tab-panel page-tab-hidden" },
+                        SignPage {}
+                    }
+                    div {
+                        class: if *page.read() == Page::Verify { "page-tab-panel" } else { "page-tab-panel page-tab-hidden" },
+                        VerifyPage {}
+                    }
+                    div {
+                        class: if *page.read() == Page::Settings { "page-tab-panel" } else { "page-tab-panel page-tab-hidden" },
+                        SettingsPage {}
                     }
                 }
 

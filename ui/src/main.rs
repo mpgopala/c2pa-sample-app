@@ -10,7 +10,7 @@ fn main() {
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("trace")))
         .with(logger::UiLogLayer)
         .init();
-    let recents = c2pa_sample_app::model::recents::load_recents();
+    let recents = c2pa_model::recents::load_recents();
     let app_menu = menu::build_app_menu(&recents);
 
     dioxus::LaunchBuilder::desktop()
