@@ -273,11 +273,56 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .tree-section { cursor: pointer; display: flex; align-items: center; color: var(--text); }
 .tree-section:hover { color: var(--primary); }
 .tree-icon { margin-right: 4px; font-size: 11px; user-select: none; }
-.tree-leaf { display: flex; align-items: baseline; padding: 2px 0; color: var(--text-secondary); }
+.tree-leaf { display: flex; align-items: baseline; padding: 2px 0; color: var(--text-secondary); cursor: pointer; }
+.tree-leaf:hover { background: rgba(0, 0, 0, 0.03); border-radius: 2px; }
 .tree-key { color: var(--text); font-weight: 500; }
 .tree-sep { margin: 0 3px; color: var(--text-secondary); }
 .tree-value { color: #1a73e8; word-break: break-all; }
 .tree-highlighted { background: #fff8e1; border-left: 3px solid #f9a825; margin-left: -3px; border-radius: 2px; }
+.tree-leaf-highlighted {
+  background: #fff8e1;
+  border-left: 3px solid #f9a825;
+  margin-left: -3px;
+  border-radius: 2px;
+  color: var(--text);
+}
+.manifest-json-split {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+}
+.manifest-store-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.json-panel-card {
+  flex: 1;
+  min-width: 280px;
+  max-width: 50%;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+.json-panel-pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: #fafafa;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow: auto;
+  flex: 1;
+  max-height: min(70vh, 560px);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
 .tree-ing-link { margin-left: 8px; font-size: 11px; color: var(--primary); cursor: pointer; text-decoration: underline; user-select: none; white-space: nowrap; }
 .tree-ing-link:hover { color: var(--primary-hover); }
 .settings-page {

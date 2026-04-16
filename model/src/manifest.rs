@@ -4,7 +4,6 @@ pub use c2pa::SigningAlg;
 use tracing::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::path::Path;
 
 /// Overall C2PA validation outcome for a verified asset.
 ///
@@ -283,22 +282,13 @@ pub struct SignParams {
 
 /// Infer the IANA media type for `source` from its file extension.
 /// Falls back to `"application/octet-stream"` for unrecognised extensions.
-fn ext_to_mime(source: &str) -> &'static str {
-    match Path::new(source)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .as_deref()
-    {
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("png")                => "image/png",
-        Some("mp4") | Some("m4v") => "video/mp4",
-        Some("mov")                => "video/quicktime",
-        Some("avi")                => "video/avi",
-        Some("pdf")                => "application/pdf",
-        Some("tiff") | Some("tif") => "image/tiff",
-        Some("webp")               => "image/webp",
-        _                          => "application/octet-stream",
+fn ext_to_mime(source: &str) -> String {
+
+    let mime = c2pa::format_from_path(source);
+    if let Some(mime) = mime {
+        mime
+    } else {
+        "".to_string()
     }
 }
 
@@ -308,7 +298,13 @@ fn ext_to_mime(source: &str) -> &'static str {
 /// attaches it with the specified relationship.  Returns an error string
 /// if any ingredient file cannot be opened.
 fn build_builder(p: &ManifestParams) -> Result<Builder, String> {
-    let format = p.format.as_deref().unwrap_or_else(|| ext_to_mime(&p.source)).to_string();
+    let format: String = p
+        .format
+        .clone()
+        .unwrap_or_else(|| ext_to_mime(&p.source));
+    if format.is_empty() {
+        return Err(format!("Failed to get MIME type for {}", p.source));
+    }
 
     let assertion_values: Vec<Value> = p.assertions.iter()
         .map(|(label, data)| json!({ "label": label, "data": data }))

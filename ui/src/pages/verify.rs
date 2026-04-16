@@ -5,7 +5,7 @@ use model::manifest::{
 };
 use model::recents::{push_recent, RecentEntry};
 use dioxus::prelude::*;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use tracing::{debug, info};
 
@@ -675,6 +675,160 @@ fn is_visible(id: &str, sections: &SectionSet, expanded: &HashSet<String>) -> bo
     true
 }
 
+// ── JSON panel: map tree row ids to the JSON value shown beside the tree ───
+
+fn navigate_json_value(v: &Value, parts: &[&str]) -> Option<Value> {
+    if parts.is_empty() {
+        return Some(v.clone());
+    }
+    match v {
+        Value::Object(map) => {
+            let ch = map.get(parts[0])?;
+            navigate_json_value(ch, &parts[1..])
+        }
+        Value::Array(arr) => {
+            let idx: usize = parts[0].parse().ok()?;
+            let ch = arr.get(idx)?;
+            navigate_json_value(ch, &parts[1..])
+        }
+        _ => None,
+    }
+}
+
+fn signature_info_value(m: &ManifestSummary) -> Value {
+    let mut map = serde_json::Map::new();
+    if let Some(ref v) = m.issuer {
+        map.insert("issuer".into(), json!(v));
+    }
+    if let Some(ref v) = m.common_name {
+        map.insert("common_name".into(), json!(v));
+    }
+    if let Some(ref v) = m.cert_serial_number {
+        map.insert("cert_serial_number".into(), json!(v));
+    }
+    if let Some(ref v) = m.signing_time {
+        map.insert("time".into(), json!(v));
+    }
+    if let Some(ref v) = m.signature_alg {
+        map.insert("alg".into(), json!(v));
+    }
+    if let Some(v) = m.revocation_status {
+        map.insert("revocation_status".into(), json!(v));
+    }
+    Value::Object(map)
+}
+
+fn value_for_manifest_path(m: &ManifestSummary, parts: &[&str]) -> Option<Value> {
+    if parts.is_empty() {
+        return serde_json::to_value(m).ok();
+    }
+    match parts[0] {
+        "title" => (parts.len() == 1).then(|| json!(m.title)),
+        "format" => (parts.len() == 1).then(|| json!(m.format)),
+        "claim_version" => (parts.len() == 1).then(|| json!(m.claim_version)),
+        "claim_generator" => (parts.len() == 1).then(|| json!(m.claim_generator)),
+        "claim_generator_info" => {
+            let cgi = m.claim_generator_info.as_ref()?;
+            if parts.len() == 1 {
+                serde_json::to_value(cgi).ok()
+            } else {
+                let v = Value::Array(cgi.clone());
+                navigate_json_value(&v, &parts[1..])
+            }
+        }
+        "instance_id" => (parts.len() == 1).then(|| json!(m.instance_id)),
+        "signature_info" => {
+            if parts.len() == 1 {
+                Some(signature_info_value(m))
+            } else {
+                match parts[1] {
+                    "issuer" => (parts.len() == 2).then(|| json!(m.issuer)),
+                    "common_name" => (parts.len() == 2).then(|| json!(m.common_name)),
+                    "cert_serial_number" => (parts.len() == 2).then(|| json!(m.cert_serial_number)),
+                    "time" => (parts.len() == 2).then(|| json!(m.signing_time)),
+                    "alg" => (parts.len() == 2).then(|| json!(m.signature_alg)),
+                    "revocation_status" => (parts.len() == 2).then(|| json!(m.revocation_status)),
+                    _ => None,
+                }
+            }
+        }
+        "assertions" => {
+            if parts.len() == 1 {
+                return serde_json::to_value(&m.assertions).ok();
+            }
+            let label = parts[1];
+            let a = m.assertions.iter().find(|a| a.label == label)?;
+            if parts.len() == 2 {
+                return serde_json::to_value(a).ok();
+            }
+            navigate_json_value(&a.data, &parts[2..])
+        }
+        "ingredients" => {
+            if parts.len() == 1 {
+                return serde_json::to_value(&m.ingredients).ok();
+            }
+            let iid = parts[1];
+            let ing = m.ingredients.iter().find(|i| i.instance_id == iid)?;
+            if parts.len() == 2 {
+                return serde_json::to_value(ing).ok();
+            }
+            navigate_json_value(&ing.data, &parts[2..])
+        }
+        _ => None,
+    }
+}
+
+fn value_for_tree_row(result: &VerifyResult, row_id: &str) -> Option<Value> {
+    if row_id == "root" {
+        return serde_json::to_value(result).ok();
+    }
+    if row_id == "valroot" || row_id.starts_with("valroot/") {
+        let arr = Value::Array(result.validation_statuses.clone());
+        if row_id == "valroot" {
+            return Some(arr);
+        }
+        let rest = row_id.strip_prefix("valroot/")?;
+        let parts: Vec<&str> = rest.split('/').collect();
+        return navigate_json_value(&arr, &parts);
+    }
+    let parts: Vec<&str> = row_id.split('/').collect();
+    if parts.first().copied() != Some("root") {
+        return None;
+    }
+    if parts.len() >= 2 && parts[1] == "active" {
+        let m = result.manifest.as_ref()?;
+        return value_for_manifest_path(m, &parts[2..]);
+    }
+    if parts.len() >= 3 && parts[1] == "other" {
+        let idx: usize = parts[2].parse().ok()?;
+        let m = result.all_manifests.get(idx)?;
+        return value_for_manifest_path(m, &parts[3..]);
+    }
+    None
+}
+
+fn format_json_panel(result: &VerifyResult, highlighted: &Option<String>) -> String {
+    let value = match highlighted {
+        None => serde_json::to_value(result).ok(),
+        Some(id) => value_for_tree_row(result, id),
+    };
+    match value {
+        Some(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|e| e.to_string()),
+        None => "(No JSON available for this selection.)".to_string(),
+    }
+}
+
+#[component]
+fn ManifestJsonPanel(result: VerifyResult, highlighted: Option<String>) -> Element {
+    let text = format_json_panel(&result, &highlighted);
+    rsx! {
+        div { class: "card json-panel-card",
+            div { class: "card-title", "Manifest JSON" }
+            pre { class: "json-panel-pre", "{text}" }
+        }
+    }
+}
+
 // ── shared helper: open a file path for verification ────────────────────────
 
 fn default_expanded() -> HashSet<String> {
@@ -841,73 +995,91 @@ pub fn VerifyPage() -> Element {
                             drop(exp);
 
                             rsx! {
-                                div { class: "tree",
-                                    for row in visible {
-                                        {
-                                            let indent = row.depth * 16;
-                                            let row_id = row.id.clone();
-                                            let is_highlighted = highlighted.read().as_deref() == Some(&row_id);
-                                            if row.is_section {
-                                                let is_open = expanded.read().contains(&row_id);
-                                                let section_class = if is_highlighted {
-                                                    "tree-node tree-section tree-highlighted"
-                                                } else {
-                                                    "tree-node tree-section"
-                                                };
-                                                rsx! {
-                                                    div {
-                                                        key: "{row_id}",
-                                                        class: "{section_class}",
-                                                        style: "padding-left: {indent}px",
-                                                        onclick: move |_| {
-                                                            highlighted.set(Some(row_id.clone()));
-                                                            let mut exp = expanded.write();
-                                                            if exp.contains(&row_id) { exp.remove(&row_id); } else { exp.insert(row_id.clone()); }
-                                                        },
-                                                        span { class: "tree-icon", if is_open { "▾" } else { "▸" } }
-                                                        "{row.label}"
-                                                    }
-                                                }
-                                            } else {
-                                                let value = row.value.clone().unwrap_or_default();
-                                                let ing_link = row.ingredient_link.clone();
-                                                rsx! {
-                                                    div {
-                                                        key: "{row_id}",
-                                                        class: "tree-leaf",
-                                                        style: "padding-left: {indent}px",
-                                                        span { class: "tree-key", "{row.label}" }
-                                                        span { class: "tree-sep", ": " }
-                                                        span { class: "tree-value", "{value}" }
-                                                        if let Some(ing_label) = ing_link {
-                                                            span {
-                                                                class: "tree-ing-link",
-                                                                onclick: move |e| {
-                                                                    e.stop_propagation();
-                                                                    let res_guard = result.read();
-                                                                    if let Some(res) = res_guard.as_ref() {
-                                                                        if let Some(target_id) = find_ingredient_row_id(res, &ing_label, &row_id) {
-                                                                            let mut exp = expanded.write();
-                                                                            for anc in ancestor_ids(&target_id) {
-                                                                                exp.insert(anc);
-                                                                            }
-                                                                            exp.insert(target_id.clone());
-                                                                            drop(exp);
-                                                                            highlighted.set(Some(target_id));
-                                                                        }
-                                                                    }
+                                div { class: "manifest-json-split",
+                                    div { class: "manifest-store-column",
+                                        div { class: "tree",
+                                            for row in visible {
+                                                {
+                                                    let indent = row.depth * 16;
+                                                    let row_id = row.id.clone();
+                                                    let is_highlighted = highlighted.read().as_deref() == Some(&row_id);
+                                                    if row.is_section {
+                                                        let is_open = expanded.read().contains(&row_id);
+                                                        let section_class = if is_highlighted {
+                                                            "tree-node tree-section tree-highlighted"
+                                                        } else {
+                                                            "tree-node tree-section"
+                                                        };
+                                                        rsx! {
+                                                            div {
+                                                                key: "{row_id}",
+                                                                class: "{section_class}",
+                                                                style: "padding-left: {indent}px",
+                                                                onclick: move |_| {
+                                                                    highlighted.set(Some(row_id.clone()));
+                                                                    let mut exp = expanded.write();
+                                                                    if exp.contains(&row_id) { exp.remove(&row_id); } else { exp.insert(row_id.clone()); }
                                                                 },
-                                                                "↗ ingredient"
+                                                                span { class: "tree-icon", if is_open { "▾" } else { "▸" } }
+                                                                "{row.label}"
+                                                            }
+                                                        }
+                                                    } else {
+                                                        let value = row.value.clone().unwrap_or_default();
+                                                        let ing_link = row.ingredient_link.clone();
+                                                        let row_id_leaf = row_id.clone();
+                                                        let row_id_ing = row_id.clone();
+                                                        let leaf_class = if is_highlighted {
+                                                            "tree-leaf tree-leaf-highlighted"
+                                                        } else {
+                                                            "tree-leaf"
+                                                        };
+                                                        rsx! {
+                                                            div {
+                                                                key: "{row_id}",
+                                                                class: "{leaf_class}",
+                                                                style: "padding-left: {indent}px",
+                                                                onclick: move |_| {
+                                                                    highlighted.set(Some(row_id_leaf.clone()));
+                                                                },
+                                                                span { class: "tree-key", "{row.label}" }
+                                                                span { class: "tree-sep", ": " }
+                                                                span { class: "tree-value", "{value}" }
+                                                                if let Some(ing_label) = ing_link {
+                                                                    span {
+                                                                        class: "tree-ing-link",
+                                                                        onclick: move |e| {
+                                                                            e.stop_propagation();
+                                                                            let res_guard = result.read();
+                                                                            if let Some(res) = res_guard.as_ref() {
+                                                                                if let Some(target_id) = find_ingredient_row_id(res, &ing_label, &row_id_ing) {
+                                                                                    let mut exp = expanded.write();
+                                                                                    for anc in ancestor_ids(&target_id) {
+                                                                                        exp.insert(anc);
+                                                                                    }
+                                                                                    exp.insert(target_id.clone());
+                                                                                    drop(exp);
+                                                                                    highlighted.set(Some(target_id));
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        "↗ ingredient"
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
+                                        div { class: "add-row",
+                                            button { class: "btn", "Export Report" }
+                                        }
                                     }
-                                }
-                                div { class: "add-row",
-                                    button { class: "btn", "Export Report" }
+                                    ManifestJsonPanel {
+                                        result: res.clone(),
+                                        highlighted: highlighted.read().clone(),
+                                    }
                                 }
                             }
                         }
@@ -939,14 +1111,21 @@ pub fn VerifyPage() -> Element {
                                             {
                                                 let indent = row.depth * 16;
                                                 let row_id = row.id.clone();
+                                                let is_highlighted = highlighted.read().as_deref() == Some(&row_id);
                                                 if row.is_section {
                                                     let is_open = expanded.read().contains(&row_id);
+                                                    let sec_class = if is_highlighted {
+                                                        "tree-node tree-section tree-highlighted"
+                                                    } else {
+                                                        "tree-node tree-section"
+                                                    };
                                                     rsx! {
                                                         div {
                                                             key: "{row_id}",
-                                                            class: "tree-node tree-section",
+                                                            class: "{sec_class}",
                                                             style: "padding-left: {indent}px",
                                                             onclick: move |_| {
+                                                                highlighted.set(Some(row_id.clone()));
                                                                 let mut exp = expanded.write();
                                                                 if exp.contains(&row_id) { exp.remove(&row_id); } else { exp.insert(row_id.clone()); }
                                                             },
@@ -956,11 +1135,19 @@ pub fn VerifyPage() -> Element {
                                                     }
                                                 } else {
                                                     let value = row.value.clone().unwrap_or_default();
+                                                    let leaf_class = if is_highlighted {
+                                                        "tree-leaf tree-leaf-highlighted"
+                                                    } else {
+                                                        "tree-leaf"
+                                                    };
                                                     rsx! {
                                                         div {
                                                             key: "{row_id}",
-                                                            class: "tree-leaf",
+                                                            class: "{leaf_class}",
                                                             style: "padding-left: {indent}px",
+                                                            onclick: move |_| {
+                                                                highlighted.set(Some(row_id.clone()));
+                                                            },
                                                             span { class: "tree-key", "{row.label}" }
                                                             span { class: "tree-sep", ": " }
                                                             span { class: "tree-value", "{value}" }
