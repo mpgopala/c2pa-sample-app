@@ -1,6 +1,6 @@
 # C2PA Sample App
 
-A desktop tool for signing and verifying [C2PA](https://c2pa.org/) manifests. Two independent UI implementations share the same Rust model layer.
+A desktop tool for signing and verifying [C2PA](https://c2pa.org/) manifests. The UI is a [Dioxus](https://dioxuslabs.com/) desktop app (Rust only); it shares a separate **`model`** crate for verification, signing, recents, and signer preferences.
 
 ## What it does
 
@@ -18,44 +18,43 @@ A desktop tool for signing and verifying [C2PA](https://c2pa.org/) manifests. Tw
 
 ```
 c2pa-sample-app/
-  src/
-    model/
+  Cargo.toml          — workspace (members: model, ui)
+  model/              — C2PA verify/sign, recents, preferences (library crate)
+    src/
       manifest.rs     — verify_embedded_manifest(), sign_asset(), add_manifest()
       recents.rs      — load_recents(), push_recent()
-  ui/
-    dioxus/           — Desktop app: pure Rust + Dioxus (no JS)
-    tauri/            — Desktop app: Tauri backend + vanilla JS/HTML/CSS frontend
-  docs/               — Architecture and framework documentation
+      preferences.rs  — load_preferences(), save_preferences() (signer paths & algorithm)
+  ui/                 — Dioxus desktop app (depends on model)
+    src/
+      app.rs          — shell, tabs, log pane
+      pages/          — Sign, Verify, Settings
+      styles.css      — embedded in the binary (include_str!)
+  docs/               — Framework notes and C2PA manifest store JSON specs
 ```
 
 ---
 
 ## Quick start
 
-### Dioxus UI (pure Rust)
+From the repository root (the workspace default binary is `ui`):
 
 ```bash
-cd ui/dioxus
 cargo run
 ```
 
-With hot reload:
+Or explicitly:
+
+```bash
+cd ui
+cargo run
+```
+
+With hot reload (requires [Dioxus CLI](https://dioxuslabs.com/learn/0.6/getting_started)):
+
 ```bash
 cargo install dioxus-cli
+cd ui
 dx serve --platform desktop
-```
-
-### Tauri UI (Rust + vanilla JS)
-
-```bash
-# One-time: install Tauri CLI
-npm install          # from ui/tauri/
-
-# Run
-cd ui/tauri/src-tauri
-cargo tauri dev
-# or without Tauri CLI:
-cargo run
 ```
 
 ---
@@ -67,7 +66,7 @@ cargo run
 1. Open the **Sign** tab.
 2. Click **Browse** under "Drop file here" and select your source asset (JPEG, PNG, MP4, MOV, PDF, TIFF, WebP).
 3. The **Signed Output File** and **Manifest Archive** paths are derived automatically — change them if needed.
-4. Under **Signer**, pick an algorithm (ES256 is the default) and browse to your certificate and private key (both PEM format).
+4. Under **Signer**, pick an algorithm (ES256 is the default) and browse to your certificate and private key (both PEM format). These choices are saved to `~/.c2pa-tool/preferences.json` for the next launch.
 5. Under **Assertions**, add one or more assertions from the preset list or type a custom label:
    - `c2pa.actions` — add one or more action entries (created, edited, published, …) with optional digital source type
    - `c2pa.training-mining` — set AI training/mining permissions
@@ -99,36 +98,39 @@ Recent files appear in the left panel for quick re-opening.
 
 ### Settings
 
-The **Settings** tab controls:
+The **Settings** tab is a prototype for:
+
 - **Trust Lists** — PEM files containing trusted CA certificates used during validation.
 - **Configuration** — load a TOML config file or paste JSON inline.
 - **HTTP Resolution** — toggle remote manifest fetching and set a timeout.
 
-> Note: Settings UI is currently a prototype. Persistence and actual config loading are not yet wired up.
+Trust and verification configuration from this tab are not yet wired through to the model layer. Signer defaults on the **Sign** tab are persisted separately (see above).
 
 ### Log pane
 
 The log pane at the bottom of the window captures all `tracing` events:
+
 - **Filter** by text (searches both message and target).
 - **Filter by level** — All / Trace+ / Debug+ / Info+ / Warn+ / Error only.
 - **Auto-scroll** — enabled by default; uncheck to pause scrolling.
 - **Clear** — empties the log buffer.
-- Drag the handle between the page content and the log pane to resize it.
+
+Use **View → Show Log Pane** (or the menu equivalent) if the pane is hidden. Drag the handle between the page content and the log pane to resize it.
 
 ---
 
 ## Model layer API
 
-The `c2pa_sample_app` crate (`src/`) exposes these public functions:
+The **`model`** crate exposes verification, signing, recents, and preferences. Add it as a path dependency from other Rust code in this workspace, or copy the patterns into your own crate.
 
 ```rust
-use c2pa_sample_app::model::manifest::{
+use model::manifest::{
     verify_embedded_manifest,   // -> VerifyResult
     sign_asset,                 // (SignParams) -> Result<String, String>
     add_manifest,               // (ManifestParams, dest) -> Result<String, String>
     SigningAlg,
 };
-use c2pa_sample_app::model::recents::{
+use model::recents::{
     load_recents,   // -> Vec<RecentEntry>
     push_recent,    // (&str, &mut Vec<RecentEntry>)
 };
@@ -170,29 +172,9 @@ let result = sign_asset(SignParams {
 });
 ```
 
----
-
-## Supported file formats
-
-C2PA manifest embedding is supported for the formats listed below. The MIME type is inferred from the file extension.
-
-| Extension | MIME type |
-|-----------|-----------|
-| jpg / jpeg | image/jpeg |
-| png | image/png |
-| mp4 / m4v | video/mp4 |
-| mov | video/quicktime |
-| avi | video/avi |
-| pdf | application/pdf |
-| tiff / tif | image/tiff |
-| webp | image/webp |
-
----
-
 ## Further reading
 
-- [docs/UI.md](docs/UI.md) — UI layout and design decisions
-- [docs/dioxus.md](docs/dioxus.md) — Dioxus framework notes
-- [docs/tauri.md](docs/tauri.md) — Tauri (vanilla JS) framework notes
+- [docs/dioxus.md](docs/dioxus.md) — Dioxus layout and patterns used in this app
+- [docs/tier1-requirements.md](docs/tier1-requirements.md) — capability notes aligned with c2pa-rs APIs (not all are exposed in the UI)
 - [C2PA specification](https://c2pa.org/specifications/specifications/2.1/specs/C2PA_Specification.html)
 - [c2pa-rs crate](https://docs.rs/c2pa)
