@@ -327,6 +327,8 @@ fn ManifestRelationshipDiagram(
 /// Leaves carry a `value`; sections are collapsible.
 /// `ingredient_link` is set on leaves whose value is a JUMBF ingredient
 /// reference — it holds the ingredient assertion label to navigate to.
+/// `manifest_link` is set on the `active_manifest` leaf of an ingredient —
+/// it holds the manifest JUMBF label to navigate to within the store.
 #[derive(Clone, PartialEq)]
 struct Row {
     id: String,
@@ -335,6 +337,7 @@ struct Row {
     is_section: bool,
     value: Option<String>,
     ingredient_link: Option<String>,
+    manifest_link: Option<String>,
 }
 
 /// IDs of all section rows (needed to decide visibility).
@@ -477,13 +480,13 @@ fn ancestor_ids(row_id: &str) -> Vec<String> {
 fn push_leaf(rows: &mut Vec<Row>, id: impl Into<String>, label: impl Into<String>, depth: usize, value: impl Into<String>) {
     let value = value.into();
     let ingredient_link = extract_ingredient_label(&value).map(str::to_string);
-    rows.push(Row { id: id.into(), label: label.into(), depth, is_section: false, value: Some(value), ingredient_link });
+    rows.push(Row { id: id.into(), label: label.into(), depth, is_section: false, value: Some(value), ingredient_link, manifest_link: None });
 }
 
 fn push_section(rows: &mut Vec<Row>, sections: &mut SectionSet, id: impl Into<String>, label: impl Into<String>, depth: usize) {
     let id = id.into();
     sections.insert(id.clone());
-    rows.push(Row { id, label: label.into(), depth, is_section: true, value: None, ingredient_link: None });
+    rows.push(Row { id, label: label.into(), depth, is_section: true, value: None, ingredient_link: None, manifest_link: None });
 }
 
 /// Tree label for one JSON array element. C2PA `actions` entries are objects with an
@@ -638,6 +641,12 @@ fn build_manifest_rows(
         if let Value::Object(map) = &ing.data {
             for (k, v) in map {
                 build_json_rows(rows, sections, v, &format!("{i_id}/{k}"), k, depth + 2);
+            }
+        }
+        if let Some(target_label) = ing.active_manifest.as_ref() {
+            let am_id = format!("{i_id}/active_manifest");
+            if let Some(row) = rows.iter_mut().find(|r| r.id == am_id && !r.is_section) {
+                row.manifest_link = Some(target_label.clone());
             }
         }
     }
@@ -1027,6 +1036,7 @@ pub fn VerifyPage() -> Element {
                                                     } else {
                                                         let value = row.value.clone().unwrap_or_default();
                                                         let ing_link = row.ingredient_link.clone();
+                                                        let manifest_link = row.manifest_link.clone();
                                                         let row_id_leaf = row_id.clone();
                                                         let row_id_ing = row_id.clone();
                                                         let leaf_class = if is_highlighted {
@@ -1064,6 +1074,27 @@ pub fn VerifyPage() -> Element {
                                                                             }
                                                                         },
                                                                         "↗ ingredient"
+                                                                    }
+                                                                }
+                                                                if let Some(target_label) = manifest_link {
+                                                                    span {
+                                                                        class: "tree-ing-link",
+                                                                        onclick: move |e| {
+                                                                            e.stop_propagation();
+                                                                            let res_guard = result.read();
+                                                                            if let Some(res) = res_guard.as_ref() {
+                                                                                if let Some(target_id) = manifest_tree_section_id(&target_label, res) {
+                                                                                    let mut exp = expanded.write();
+                                                                                    for anc in ancestor_ids(&target_id) {
+                                                                                        exp.insert(anc);
+                                                                                    }
+                                                                                    exp.insert(target_id.clone());
+                                                                                    drop(exp);
+                                                                                    highlighted.set(Some(target_id));
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                        "↗ manifest"
                                                                     }
                                                                 }
                                                             }
